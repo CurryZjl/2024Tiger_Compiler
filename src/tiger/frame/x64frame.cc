@@ -87,10 +87,7 @@ public:
       : offset(offset), parent_frame(parent) {}
 
   /* TODO: Put your lab5-part1 code here */
-  /*返回该InFrameAccess的地址的int值，注意之后要使用CreateIntToPtr
-  eg::llvm::Value *static_link_ptr = ir_builder->CreateIntToPtr(
-          static_link_addr,
-          llvm::Type::getInt64PtrTy(ir_builder->getContext()));*/
+  /*返回该InFrameAccess的地址的int值，注意之后要使用CreateIntToPtr*/
   llvm::Value *ToLLVMVal(llvm::Value *frame_addr_ptr) const override{
     llvm::Value *load_frame_size = ir_builder->CreateLoad(ir_builder->getInt64Ty(), parent_frame->framesize_global);
     llvm::Value *frame_offset = ir_builder->CreateNSWAdd(frame_addr_ptr, llvm::ConstantInt::get(llvm::Type::getInt32Ty(ir_module->getContext()), offset));
@@ -128,9 +125,9 @@ public:
 //formals是表示参数是否escape的列表，true表示escape，false表示non-escape
 frame::Frame *NewFrame(temp::Label *name, std::list<bool> formals) {
   /* TODO: Put your lab5-part1 code here */
-  //size_t size = formals.size() < 1 ? 1 : formals.size();
   size_t size = formals.size();
   std::list<Access *> *outgo = new std::list<Access*>;
+  assert(name != nullptr);
   frame::Frame *frame = new X64Frame(name, outgo);
   int acc_off = 0;
   for(int i = 0; i < size; i++){

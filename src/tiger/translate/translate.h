@@ -39,6 +39,10 @@ public:
   void set_sp(llvm::Value *sp) { frame_->sp = sp; }
 
   /* TODO: Put your lab5-part1 code here */
+  Level(Level *parent, temp::Label *name, std::list<bool> *formals)
+      : parent_(parent) {
+          frame_ = frame::NewFrame(name, *formals);
+      }
 };
 
 class ProgTr {

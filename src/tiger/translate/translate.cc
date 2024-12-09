@@ -44,6 +44,15 @@ int getActualFramesize(tr::Level *level) {
   return level->frame_->calculateActualFramesize();
 }
 
+llvm::GlobalVariable *addGlobalValue(llvm::Module* ir_module, std::string name, llvm::Type *type, llvm::Constant *initializer, int align)
+{
+    llvm::GlobalVariable *global = (llvm::GlobalVariable *)ir_module->getOrInsertGlobal(name, type);
+    global->setInitializer(initializer);
+    global->setDSOLocal(true);
+    global->setAlignment(llvm::MaybeAlign(align));
+    return global;
+}
+
 namespace tr {
 
 Access *Access::AllocLocal(Level *level, bool escape) {
@@ -72,7 +81,7 @@ void ProgTr::Translate() {
   type::Ty *s_ty = type::StringTy::Instance();
   /* TODO: Put your lab5-part1 code here */
   llvm::FunctionType *string_equal_func_type = llvm::FunctionType::get(
-      	ir_builder->getInt32Ty(),
+      	ir_builder->getInt1Ty(),
       	{s_ty->GetLLVMType(), s_ty->GetLLVMType()}, false);
   string_equal = llvm::Function::Create(string_equal_func_type,
         llvm::Function::ExternalLinkage, "string_equal", ir_module);
@@ -89,7 +98,38 @@ void ProgTr::Translate() {
   init_array = llvm::Function::Create(init_array_func_type,
     llvm::Function::ExternalLinkage, "init_array", ir_module);
   
+
+  /*tiger main*/
+  std::vector<llvm::Type *> formals_ty;
+  formals_ty.push_back(ir_builder->getInt64Ty());
+  formals_ty.push_back(ir_builder->getInt64Ty());
+  llvm::FunctionType *func_type = llvm::FunctionType::get(
+      ir_builder->getInt32Ty(), 
+      formals_ty, false);
+  llvm::Function *func = llvm::Function::Create(func_type, 
+    llvm::Function::ExternalLinkage, "tigermain", ir_module);
+  
+  llvm::GlobalVariable *global_frame_size = new llvm::GlobalVariable(
+      llvm::Type::getInt64Ty(ir_builder->getContext()), true,
+      llvm::GlobalValue::InternalLinkage,
+      llvm::ConstantInt::get(llvm::Type::getInt64Ty(ir_builder->getContext()),0),
+      "tigermain_frame_size");
+  ir_module->getGlobalList().push_back(global_frame_size);
+  func_stack.push(func);
+  llvm::BasicBlock *bb = llvm::BasicBlock::Create(ir_builder->getContext(), "tigermain", func);
+  ir_builder->SetInsertPoint(bb);
+
+  auto real_arg_it = func->arg_begin();
+  this->main_level_->set_sp(real_arg_it);
+  this->main_level_->frame_->framesize_global = global_frame_size;
+
   ValAndTy *result = this->absyn_tree_->Translate(this->venv_.get(), this->tenv_.get(), this->main_level_.get(), this->errormsg_.get());
+  if (result->ty_ != type::VoidTy::Instance())
+    ir_builder->CreateRet(result->val_);
+  else
+    ir_builder->CreateRet(llvm::ConstantInt::get(ir_builder->getInt32Ty(), 0));
+  
+  func_stack.pop();
 }
 
 llvm::Value *GetStaticLink(tr::Level *current_level, tr::Level *target_level){
@@ -164,12 +204,7 @@ void FunctionDec::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
       types.push_back(tyy->GetLLVMType());
     }
     /* Create level */
-    /*   main_level_(std::make_unique<Level>(
-            frame::NewFrame(temp::LabelFactory::NamedLabel("tigermain"),
-                            std::list<bool>()),
-            nullptr)),*/
-    tr::Level *func_level = new tr::Level(frame::NewFrame(func_label,
-                            *escape_list), level);
+    tr::Level *func_level = new tr::Level(level, func_label, escape_list);
     /* Store function entry in venv */
     llvm::FunctionType *func_ty = llvm::FunctionType::get(
       	result_type->GetLLVMType(),
@@ -202,21 +237,16 @@ void FunctionDec::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
     //int actualFramesize = func_frame->calculateActualFramesize();
     llvm::Constant *initValue = llvm::ConstantInt::get(llvm::Type::getInt64Ty(ir_module->getContext()), 0);
     
-    llvm::GlobalVariable *framesize_global = new llvm::GlobalVariable(
-          *ir_module,
-          llvm::Type::getInt64Ty(ir_module->getContext()),
-          false,
-          llvm::GlobalValue::ExternalLinkage,
-          initValue,
-          fundec->name_->Name() + "_framesize_global"
-      );
+    llvm::GlobalVariable *framesize_global = addGlobalValue(ir_module,  fundec->name_->Name() + "_framesize_global", llvm::Type::getInt64Ty(ir_module->getContext()),initValue, 8);
+    ir_module->getGlobalList().push_back(framesize_global);
+    func_stack.push(func_llvm);
 
     func_frame->framesize_global = framesize_global;
+    //NOTE!!!
+    llvm::Value *load_frame_size = ir_builder->CreateLoad(ir_builder->getInt64Ty(), func_frame->framesize_global);
 
     auto ArgIt = func_llvm->arg_begin();
     llvm::Value *sp_arg_val = ArgIt++;
-    //NOTE!!!
-    llvm::Value *load_frame_size = ir_builder->CreateLoad(ir_builder->getInt64Ty(), func_frame->framesize_global);
     func_level->set_sp(ir_builder->CreateSub(sp_arg_val, load_frame_size));
 
     llvm::BasicBlock *entry_bb = llvm::BasicBlock::Create(ir_module->getContext(), fundec->name_->Name(), func_llvm);
@@ -279,7 +309,7 @@ type::Ty *RecordTy::Translate(env::TEnvPtr tenv,
 
 type::Ty *ArrayTy::Translate(env::TEnvPtr tenv, err::ErrorMsg *errormsg) const {
   /* TODO: Put your lab5-part1 code here */
-  return new type::ArrayTy(tenv->Look(this->array_));
+  return new type::ArrayTy(tenv->Look(this->array_)->ActualTy());
 }
 
 tr::ValAndTy *SimpleVar::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
@@ -319,7 +349,7 @@ tr::ValAndTy *FieldVar::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
   llvm::Value *addr = ir_builder->CreateNSWAdd(var_and_ty->val_, llvm::ConstantInt::get(llvm::Type::getInt32Ty(ir_module->getContext()), offset));
   llvm::Value *ptr = ir_builder->CreateIntToPtr(
           addr,
-          llvm::PointerType::get(var_and_ty->ty_->GetLLVMType(), 0));
+          llvm::Type::getInt64PtrTy(ir_builder->getContext()));
   llvm::Value *load_val = ir_builder->CreateLoad(ir_builder->getInt64Ty(), ptr);
   return new tr::ValAndTy(load_val , type);
 }
@@ -334,7 +364,7 @@ tr::ValAndTy *SubscriptVar::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
   llvm::Value *val = ir_builder->CreateNSWAdd(var_val_ty->val_, sub_val);
   llvm::Value *ptr = ir_builder->CreateIntToPtr(
           val,
-          llvm::PointerType::get(var_val_ty->ty_->GetLLVMType(), 0));
+          llvm::Type::getInt64PtrTy(ir_builder->getContext()));
   llvm::Value *load_val = ir_builder->CreateLoad(ir_builder->getInt64Ty(), ptr);
   return new tr::ValAndTy(load_val , ((type::ArrayTy *) var_val_ty->ty_)->ty_->ActualTy());
 }
@@ -623,9 +653,9 @@ tr::ValAndTy *AssignExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
   /* TODO: Put your lab5-part1 code here */
   tr::ValAndTy *var_val_ty = this->var_->Translate(venv, tenv, level, errormsg);
   tr::ValAndTy *exp_val_ty = this->exp_->Translate(venv, tenv, level, errormsg);
-  llvm::Value *load_val = ir_builder->CreateLoad(exp_val_ty->ty_->GetLLVMType(), exp_val_ty->val_);
-  ir_builder->CreateStore(load_val, var_val_ty->val_);
-  return new tr::ValAndTy(load_val, type::VoidTy::Instance());
+  // llvm::Value *load_val = ir_builder->CreateLoad(exp_val_ty->ty_->GetLLVMType(), exp_val_ty->val_);
+  ir_builder->CreateStore(exp_val_ty->val_, var_val_ty->val_);
+  return new tr::ValAndTy(NULL, type::VoidTy::Instance());
 }
 
 tr::ValAndTy *IfExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
@@ -721,12 +751,14 @@ tr::ValAndTy *WhileExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
   /*test block*/
   ir_builder->SetInsertPoint(testBlock);
   tr::ValAndTy *test_val_ty = this->test_->Translate(venv, tenv, level, errormsg);
+  llvm::BasicBlock *test_last_bb = ir_builder->GetInsertBlock();
   llvm::Value *flag = ir_builder->CreateICmpNE(test_val_ty->val_, llvm::ConstantInt::get(ir_builder->getInt32Ty(), 0));
   ir_builder->CreateCondBr(flag, bodyBlock, doneBlock);
 
   /*body block*/
   ir_builder->SetInsertPoint(bodyBlock);
   tr::ValAndTy *body_val_ty = this->body_->Translate(venv, tenv, level, errormsg);
+  llvm::BasicBlock *body_last_bb = ir_builder->GetInsertBlock();
   ir_builder->CreateBr(testBlock);
 
   /*done block*/
@@ -822,8 +854,8 @@ tr::ValAndTy *ArrayExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
                                   tr::Level *level,
                                   err::ErrorMsg *errormsg) const {
   /* TODO: Put your lab5-part1 code here */
-  type::Ty *array_ty = tenv->Look(this->typ_)->ActualTy();
-  type::Ty *element_ty = ((type::ArrayTy *) array_ty)->ty_->ActualTy();
+  type::Ty *array_ty = tenv->Look(this->typ_);
+  //type::Ty *element_ty = ((type::ArrayTy *) array_ty)->ty_->ActualTy();
   tr::ValAndTy *size_val_ty = this->size_->Translate(venv, tenv, level, errormsg);
   tr::ValAndTy *init_val_ty = this->init_->Translate(venv, tenv, level, errormsg);
   //%11 = call i64 @init_array(i32 %10, i64 0)
@@ -831,8 +863,8 @@ tr::ValAndTy *ArrayExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
   llvm::Value *array_addr = ir_builder->CreateCall(init_array,{size_val_ty->val_, init_val_ty->val_});
   llvm::Value *array_ptr = ir_builder->CreateIntToPtr(
           array_addr,
-          llvm::Type::getInt64PtrTy(ir_builder->getContext()));
-  return new tr::ValAndTy(array_ptr, array_ty);
+          array_ty->GetLLVMType());
+  return new tr::ValAndTy(array_ptr, array_ty->ActualTy());
 }
 
 tr::ValAndTy *VoidExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
