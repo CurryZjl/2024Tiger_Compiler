@@ -87,11 +87,22 @@ public:
       : offset(offset), parent_frame(parent) {}
 
   /* TODO: Put your lab5-part1 code here */
+  /*返回该InFrameAccess的地址的int值，注意之后要使用CreateIntToPtr
+  eg::llvm::Value *static_link_ptr = ir_builder->CreateIntToPtr(
+          static_link_addr,
+          llvm::Type::getInt64PtrTy(ir_builder->getContext()));*/
+  llvm::Value *ToLLVMVal(llvm::Value *frame_addr_ptr) const override{
+    llvm::Value *load_frame_size = ir_builder->CreateLoad(ir_builder->getInt64Ty(), parent_frame->framesize_global);
+    llvm::Value *frame_offset = ir_builder->CreateNSWAdd(frame_addr_ptr, llvm::ConstantInt::get(llvm::Type::getInt32Ty(ir_module->getContext()), offset));
+    llvm::Value *access = ir_builder->CreateNSWAdd(frame_addr_ptr, frame_offset);
+    return access;
+  }
 };
 
 
 class X64Frame : public Frame {
 public:
+  //X64的Frame。分配过程中默认预留outgo_size_=8，而一开始没有局部变量，所以offset_=0
   X64Frame(temp::Label *name, std::list<frame::Access *> *formals)
       : Frame(8, 0, name, formals) {}
 
@@ -103,7 +114,7 @@ public:
   frame::Access *AllocLocal(bool escape) override {
     frame::Access *access;
 
-    offset_ -= reg_manager->WordSize();
+    offset_ -= reg_manager->WordSize(); //分配InFrameAccess时需要注意调整frame的offset_
     access = new InFrameAccess(offset_, this);
 
     return access;
@@ -114,8 +125,21 @@ public:
   }
 };
 
+//formals是表示参数是否escape的列表，true表示escape，false表示non-escape
 frame::Frame *NewFrame(temp::Label *name, std::list<bool> formals) {
   /* TODO: Put your lab5-part1 code here */
+  //size_t size = formals.size() < 1 ? 1 : formals.size();
+  size_t size = formals.size();
+  std::list<Access *> *outgo = new std::list<Access*>;
+  frame::Frame *frame = new X64Frame(name, outgo);
+  int acc_off = 0;
+  for(int i = 0; i < size; i++){
+    acc_off += 8;
+    frame::Access *access = new InFrameAccess(acc_off, frame);
+    outgo->push_back(access);
+  }
+  
+  return frame;
 }
 
 
