@@ -87,11 +87,18 @@ public:
       : offset(offset), parent_frame(parent) {}
 
   /* TODO: Put your lab5-part1 code here */
-  /*返回该InFrameAccess的地址的int值，注意之后要使用CreateIntToPtr*/
-  llvm::Value *ToLLVMVal(llvm::Value *frame_addr_ptr) const override{
+  /*使用staticlink的情况*/
+  llvm::Value *ToLLVMVal(llvm::Value *frame_addr) const override{
     llvm::Value *load_frame_size = ir_builder->CreateLoad(ir_builder->getInt64Ty(), parent_frame->framesize_global);
-    llvm::Value *frame_offset = ir_builder->CreateNSWAdd(frame_addr_ptr, llvm::ConstantInt::get(llvm::Type::getInt32Ty(ir_module->getContext()), offset));
-    llvm::Value *access = ir_builder->CreateNSWAdd(frame_addr_ptr, frame_offset);
+    llvm::Value *frame_offset = ir_builder->CreateNSWAdd(load_frame_size, llvm::ConstantInt::get(llvm::Type::getInt64Ty(ir_module->getContext()), offset));
+    llvm::Value *access = ir_builder->CreateNSWAdd(frame_addr, frame_offset);
+    return access;
+  }
+
+  /*不使用staticlink的情况，直接拿当前栈帧的变量addr*/
+  llvm::Value *ToLLVMVal() const override{
+    llvm::Value *frame_offset = llvm::ConstantInt::get(llvm::Type::getInt64Ty(ir_module->getContext()), offset);
+    llvm::Value *access = ir_builder->CreateNSWAdd(parent_frame->sp, frame_offset);
     return access;
   }
 };
@@ -128,10 +135,13 @@ frame::Frame *NewFrame(temp::Label *name, std::list<bool> formals) {
   size_t size = formals.size();
   std::list<Access *> *outgo = new std::list<Access*>;
   assert(name != nullptr);
+  //创建新函数时，这个新函数对应这个frame。同时有参数表outgo部分。
   frame::Frame *frame = new X64Frame(name, outgo);
   int acc_off = 0;
   for(int i = 0; i < size; i++){
     acc_off += 8;
+    //这些参数对应自己的offset。而且它们的附属栈帧是callee的栈帧。
+    //这样就可以用callee->frame->get_sp() + frame_access_offset拿到参数对应在栈上的地址
     frame::Access *access = new InFrameAccess(acc_off, frame);
     outgo->push_back(access);
   }

@@ -30,17 +30,18 @@ class Level {
 public:
   frame::Frame *frame_;
   Level *parent_;
+  int layer_;
   // llvm::Value *sp;
 
-  Level(frame::Frame *frame, Level *parent) : frame_(frame), parent_(parent) {}
+  Level(frame::Frame *frame, Level *parent) : frame_(frame), parent_(parent), layer_(1) {}
 
   llvm::Value *get_sp() { return frame_->sp; }
   
   void set_sp(llvm::Value *sp) { frame_->sp = sp; }
 
   /* TODO: Put your lab5-part1 code here */
-  Level(Level *parent, temp::Label *name, std::list<bool> *formals)
-      : parent_(parent) {
+  Level(Level *parent, temp::Label *name, std::list<bool> *formals, int layer)
+      : parent_(parent) , layer_(layer){
           frame_ = frame::NewFrame(name, *formals);
       }
 };
