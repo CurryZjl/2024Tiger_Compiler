@@ -95,7 +95,7 @@ void ProgTr::Translate() {
   
   llvm::FunctionType *init_array_func_type = llvm::FunctionType::get(
       	ir_builder->getInt64Ty(),
-      	{ir_builder->getInt32Ty(), ir_builder->getInt64Ty()}, false);
+      	{ir_builder->getInt32Ty(), ir_builder->getInt32Ty()}, false);
   init_array = llvm::Function::Create(init_array_func_type,
     llvm::Function::ExternalLinkage, "init_array", ir_module);
   
@@ -249,7 +249,6 @@ void FunctionDec::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
     frame::Frame *func_frame = func_level->frame_;
     llvm::Function *func_llvm = func_entry->func_;
     assert(func_frame != NULL);
-    //int actualFramesize = func_frame->calculateActualFramesize();
     llvm::Constant *initValue = llvm::ConstantInt::get(llvm::Type::getInt64Ty(ir_module->getContext()), 0);
     
     llvm::GlobalVariable *framesize_global = new llvm::GlobalVariable(
@@ -460,7 +459,7 @@ tr::ValAndTy *IntExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
                                 tr::Level *level,
                                 err::ErrorMsg *errormsg) const {
   /* TODO: Put your lab5-part1 code here */
-  return  new tr::ValAndTy(llvm::ConstantInt::get(llvm::Type::getInt32Ty(ir_module->getContext()), this->val_), type::IntTy::Instance());
+  return  new tr::ValAndTy(llvm::ConstantInt::get(llvm::Type::getInt32Ty(ir_module->getContext()), this->val_, true), type::IntTy::Instance());
 }
 
 tr::ValAndTy *StringExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
@@ -518,7 +517,7 @@ tr::ValAndTy *CallExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
       //里面的函数(level big)要call外面(level small)定义的函数
       tr::Level *trace_level = level;
       llvm::Value *trace_sl = nullptr;
-      while(callee_layer <= now_layer){
+      while(callee_layer + 1 != now_layer){
          auto sl_formal = trace_level->frame_->Formals()->begin();
         llvm::Value *sl_int = (*sl_formal)->ToLLVMVal(trace_level->get_sp());
         llvm::Value *sl_ptr = ir_builder->CreateIntToPtr(
