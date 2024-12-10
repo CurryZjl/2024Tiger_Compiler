@@ -128,6 +128,8 @@ void ProgTr::Translate() {
   
 
   ValAndTy *result = this->absyn_tree_->Translate(this->venv_.get(), this->tenv_.get(), this->main_level_.get(), this->errormsg_.get());
+  
+  global_frame_size->setInitializer(llvm::ConstantInt::get(llvm::Type::getInt64Ty(ir_builder->getContext()), this->main_level_->frame_->calculateActualFramesize()));
   if (result->ty_ != type::VoidTy::Instance())
     ir_builder->CreateRet(result->val_);
   else
@@ -250,7 +252,12 @@ void FunctionDec::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
     //int actualFramesize = func_frame->calculateActualFramesize();
     llvm::Constant *initValue = llvm::ConstantInt::get(llvm::Type::getInt64Ty(ir_module->getContext()), 0);
     
-    llvm::GlobalVariable *framesize_global = addGlobalValue(ir_module,  fundec->name_->Name() + "_framesize_global", llvm::Type::getInt64Ty(ir_module->getContext()),initValue, 8);
+    llvm::GlobalVariable *framesize_global = new llvm::GlobalVariable(
+      llvm::Type::getInt64Ty(ir_builder->getContext()), 
+      false,
+      llvm::GlobalValue::InternalLinkage,
+      initValue,
+       fundec->name_->Name() + "_frame_size");
     ir_module->getGlobalList().push_back(framesize_global);
     func_stack.push(func_llvm);
 
@@ -292,7 +299,7 @@ void FunctionDec::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
       llvm::Value *acc_addr = param_it_access->access_->ToLLVMVal(); //对应真实参数的access的addr
       llvm::Value *acc_ptr = ir_builder->CreateIntToPtr(
           acc_addr,
-          llvm::Type::getInt64PtrTy(ir_builder->getContext()));
+          ty->ActualTy()->GetLLVMType()->getPointerTo());
       ir_builder->CreateStore(arg_val, acc_ptr);
 
       venv->Enter((*param_it)->name_, new env::VarEntry(param_it_access, ty->ActualTy()));
@@ -317,7 +324,7 @@ void FunctionDec::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
     int framesize = func_frame->calculateActualFramesize();
     framesize_global->setInitializer(llvm::ConstantInt::get(llvm::Type::getInt64Ty(ir_module->getContext()), framesize));
     func_stack.pop();
-    tenv->BeginScope();
+    tenv->EndScope();
     venv->EndScope();
   }
   ir_builder->SetInsertPoint(origin_bb);
@@ -771,7 +778,7 @@ tr::ValAndTy *IfExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
   llvm::Value *icmp = ir_builder->CreateICmpNE(test_val_ty->val_, llvm::ConstantInt::get(test_val_ty->val_->getType(), 0));
   llvm::Value *test_val = test_val_ty->val_;
   //llvm::Value *cast_test_val = ir_builder->CreateCast(llvm::Instruction::SExt, test_val, llvm::Type::getInt32Ty(ir_module->getContext()));
-  llvm::BasicBlock *test_last_bb = ir_builder->GetInsertBlock();
+  // llvm::BasicBlock *test_last_bb = ir_builder->GetInsertBlock();
   ir_builder->CreateCondBr(icmp, thenBlock,  elseBlock);
   /*then block*/
   ir_builder->SetInsertPoint(thenBlock);
@@ -784,7 +791,6 @@ tr::ValAndTy *IfExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
   tr::ValAndTy *else_val_ty = nullptr;
   llvm::BasicBlock *else_last_bb = nullptr;
   llvm::Value *else_val = nullptr;
-  llvm::Value *cast_else_val = nullptr;
   // 如果存在 else 分支，处理 else block
   if (this->elsee_) {
       ir_builder->SetInsertPoint(elseBlock);
