@@ -66,6 +66,24 @@ void ProgTr::OutputIR(std::string_view filename) {
   ir_module->print(out, nullptr);
 }
 
+llvm::Value *GetStaticLink(tr::Level *current_level, tr::Level *target_level){
+  llvm::Value *val = current_level->get_sp();
+  while(current_level != target_level){
+    // The first accessible frame-offset_ values is the static link
+    auto sl_formal = current_level->frame_->Formals()->begin();
+    //assert(sl_formal != current_level->frame_->Formals()->end());
+    llvm::Value *static_link_addr = (*sl_formal)->ToLLVMVal(val);
+    llvm::Value *static_link_ptr = ir_builder->CreateIntToPtr(
+          static_link_addr,
+          llvm::Type::getInt64PtrTy(ir_builder->getContext()));
+    val = ir_builder->CreateLoad(ir_builder->getInt64Ty(), static_link_ptr);
+    current_level = current_level->parent_;
+  }
+  //返回目标sp的int值
+  return val;
+}
+
+
 void ProgTr::Translate() {
   /*done*/
   FillBaseVEnv();
@@ -185,7 +203,7 @@ void FunctionDec::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
       types.push_back(tyy->GetLLVMType());
     }
     /* Create level */
-    tr::Level *func_level = new tr::Level(level, func_label, escape_list, level->layer_ + 1);
+    tr::Level *func_level = new tr::Level(level, func_label, escape_list);
     /* Store function entry in venv */
     llvm::FunctionType *func_ty = llvm::FunctionType::get(
       	result_type->GetLLVMType(),
@@ -339,17 +357,9 @@ tr::ValAndTy *SimpleVar::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
   frame::Access *var_faccess = var_entry->access_->access_;
   if(var_level != level){
     //use static link 需要level的parent
-    //llvm::Value* frame_addr = tr::GetStaticLink(level, var_level);
-    llvm::Value *cur_sp = level->get_sp();
-    while (level != var_level) {
-      auto sl_formal = level->frame_->Formals()->begin();
-      llvm::Value *sl_addr = (*sl_formal)->ToLLVMVal(cur_sp);
-      llvm::Value *sl_ptr = ir_builder->CreateIntToPtr(
-          sl_addr, llvm::Type::getInt64PtrTy(ir_builder->getContext()));
-      cur_sp = ir_builder->CreateLoad(ir_builder->getInt64Ty(), sl_ptr);
-      level = level->parent_;
-    }
-    auto var_int = var_faccess->ToLLVMVal(cur_sp);
+    
+    llvm::Value *sl_addr = tr::GetStaticLink(level, var_level);
+    auto var_int = var_faccess->ToLLVMVal(sl_addr);
     auto var_ptr = ir_builder->CreateIntToPtr(
         var_int, llvm::PointerType::get(var_entry->ty_->GetLLVMType(), 0));
     return new tr::ValAndTy(var_ptr, var_entry->ty_->ActualTy());

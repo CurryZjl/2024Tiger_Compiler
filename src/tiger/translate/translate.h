@@ -40,8 +40,8 @@ public:
   void set_sp(llvm::Value *sp) { frame_->sp = sp; }
 
   /* TODO: Put your lab5-part1 code here */
-  Level(Level *parent, temp::Label *name, std::list<bool> *formals, int layer)
-      : parent_(parent) , layer_(layer){
+  Level(Level *parent, temp::Label *name, std::list<bool> *formals)
+      : parent_(parent) , layer_(parent->layer_ + 1){
           frame_ = frame::NewFrame(name, *formals);
       }
 };
