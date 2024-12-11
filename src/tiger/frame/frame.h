@@ -73,14 +73,15 @@ protected:
 class Access {
 public:
   /* TODO: Put your lab5-part1 code here */
-
+  virtual llvm::Value *ToLLVMVal(llvm::Value *frame_addr_ptr) const = 0;
+  virtual llvm::Value *ToLLVMVal() const = 0;
   virtual ~Access() = default;
 };
 
 class Frame {
 public:
-  int outgo_size_;
-  int offset_;
+  int outgo_size_;//传出参数的大小
+  int offset_;//局部变量的偏移,表达了下一次为局部变量分配InFrameAccess时，其offset的值
   temp::Label *name_;
   std::list<frame::Access *> *formals_;
   llvm::GlobalVariable *framesize_global;
@@ -96,7 +97,9 @@ public:
   [[nodiscard]] virtual std::list<frame::Access *> *Formals() const = 0;
   virtual frame::Access *AllocLocal(bool escape) = 0;
   virtual void AllocOutgoSpace(int size) = 0;
-  int calculateActualFramesize() { return (-offset_ + outgo_size_) + 8; }
+  int calculateActualFramesize() {
+    return (-offset_ + outgo_size_) + 8; //一个栈帧的大小包括：局部变量、outgo、return address三部分
+  }
 };
 
 /**
