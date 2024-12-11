@@ -89,8 +89,7 @@ public:
   /* TODO: Put your lab5-part1 code here */
   /*使用staticlink的情况*/
   llvm::Value *ToLLVMVal(llvm::Value *frame_addr) const override{
-    llvm::Value *load_frame_size = ir_builder->CreateLoad(ir_builder->getInt64Ty(), parent_frame->framesize_global);
-    llvm::Value *frame_offset = ir_builder->CreateNSWAdd(load_frame_size, llvm::ConstantInt::get(llvm::Type::getInt64Ty(ir_module->getContext()), offset));
+    llvm::Value *frame_offset = llvm::ConstantInt::get(llvm::Type::getInt64Ty(ir_module->getContext()), offset);
     llvm::Value *access = ir_builder->CreateNSWAdd(frame_addr, frame_offset);
     return access;
   }

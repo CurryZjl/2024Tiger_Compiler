@@ -44,15 +44,6 @@ int getActualFramesize(tr::Level *level) {
   return level->frame_->calculateActualFramesize();
 }
 
-llvm::GlobalVariable *addGlobalValue(llvm::Module* ir_module, std::string name, llvm::Type *type, llvm::Constant *initializer, int align)
-{
-    llvm::GlobalVariable *global = (llvm::GlobalVariable *)ir_module->getOrInsertGlobal(name, type);
-    global->setInitializer(initializer);
-    global->setDSOLocal(true);
-    global->setAlignment(llvm::MaybeAlign(align));
-    return global;
-}
-
 namespace tr {
 
 Access *Access::AllocLocal(Level *level, bool escape) {
@@ -136,23 +127,6 @@ void ProgTr::Translate() {
     ir_builder->CreateRet(llvm::ConstantInt::get(ir_builder->getInt32Ty(), 0));
   
   func_stack.pop();
-}
-
-llvm::Value *GetStaticLink(tr::Level *current_level, tr::Level *target_level){
-  llvm::Value *val = current_level->get_sp();
-  while(current_level != target_level){
-    // The first accessible frame-offset_ values is the static link
-    auto sl_formal = current_level->frame_->Formals()->begin();
-    //assert(sl_formal != current_level->frame_->Formals()->end());
-    llvm::Value *static_link_addr = (*sl_formal)->ToLLVMVal(val);
-    llvm::Value *static_link_ptr = ir_builder->CreateIntToPtr(
-          static_link_addr,
-          llvm::Type::getInt64PtrTy(ir_builder->getContext()));
-    val = ir_builder->CreateLoad(ir_builder->getInt64Ty(), static_link_ptr);
-    current_level = current_level->parent_;
-  }
-  //返回目标sp的int值
-  return val;
 }
 
 } // namespace tr
@@ -273,13 +247,6 @@ void FunctionDec::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
     auto formal_it = func_frame->formals_->begin();  //这是frame中的参数，包含着一个static link
     formal_it++; //skip sl
 
-/*  tr::Access *var_access = tr::Access::AllocLocal(level, this->escape_);
-  tr::ValAndTy *init_val_and_type = this->init_->Translate(venv, tenv, level, errormsg);
-  llvm::Value *addr = var_access->access_->ToLLVMVal(level->get_sp());
-  llvm::Value *ptr = ir_builder->CreateIntToPtr(
-          addr,
-          init_val_and_type->ty_->GetLLVMType()->getPointerTo());
-  ir_builder->CreateStore(init_val_and_type->val_, ptr);*/
     //Store %sl, %2 %3 … to their InFrameAccess address(init)
     auto access = func_frame->formals_->begin();
     llvm::Value *addr = (*access)->ToLLVMVal(); //address of new function's frame's static link
@@ -309,9 +276,8 @@ void FunctionDec::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
         ir_builder->CreateRetVoid();
     } else{
        //ir_builder->CreateRet(body_val_ty->val_);
-      if (body_val_ty->val_ &&
-        func_llvm->getReturnType() != body_val_ty->val_->getType() &&
-        body_val_ty->ty_->IsSameType(type::IntTy::Instance())) {
+       //for merge.tig : isdigit
+      if (body_val_ty->val_ && func_llvm->getReturnType() != body_val_ty->val_->getType() && body_val_ty->ty_->IsSameType(type::IntTy::Instance())) {
         auto ret_val = ir_builder->CreateZExt(body_val_ty->val_, func_entry->func_->getReturnType());
         ir_builder->CreateRet(ret_val);
       } else{
@@ -373,10 +339,19 @@ tr::ValAndTy *SimpleVar::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
   frame::Access *var_faccess = var_entry->access_->access_;
   if(var_level != level){
     //use static link 需要level的parent
-    llvm::Value* frame_addr = tr::GetStaticLink(level, var_level);
-    //auto var_int = var_faccess->ToLLVMVal(frame_addr);
+    //llvm::Value* frame_addr = tr::GetStaticLink(level, var_level);
+    llvm::Value *cur_sp = level->get_sp();
+    while (level != var_level) {
+      auto sl_formal = level->frame_->Formals()->begin();
+      llvm::Value *sl_addr = (*sl_formal)->ToLLVMVal(cur_sp);
+      llvm::Value *sl_ptr = ir_builder->CreateIntToPtr(
+          sl_addr, llvm::Type::getInt64PtrTy(ir_builder->getContext()));
+      cur_sp = ir_builder->CreateLoad(ir_builder->getInt64Ty(), sl_ptr);
+      level = level->parent_;
+    }
+    auto var_int = var_faccess->ToLLVMVal(cur_sp);
     auto var_ptr = ir_builder->CreateIntToPtr(
-        frame_addr, llvm::PointerType::get(var_entry->ty_->GetLLVMType(), 0));
+        var_int, llvm::PointerType::get(var_entry->ty_->GetLLVMType(), 0));
     return new tr::ValAndTy(var_ptr, var_entry->ty_->ActualTy());
   }
   else{
@@ -480,14 +455,14 @@ tr::ValAndTy *CallExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
   std::list<absyn::Exp *> arg_list = this->args_->GetList(); //实参列表
   size_t formalSize = func_entry->formals_->GetList().size();
   type::Ty *result_ty = func_entry->result_;
-  std::vector<llvm::Value *> args;
-  std::vector<llvm::Value *> formals;
+  std::vector<llvm::Value *> args; //llvm的实参链表
+  std::vector<llvm::Value *> formals; //当前函数真正要用的参数的链表，不包括隐含参数
 
   llvm::Value *call_val = nullptr;
 
   for(absyn::Exp *e : arg_list){
     tr::ValAndTy *arg = e->Translate(venv, tenv, level, errormsg);
-    formals.push_back(arg->val_);
+    formals.push_back(arg->val_); 
   }
 
 
@@ -495,7 +470,7 @@ tr::ValAndTy *CallExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
   //而是使用llvm的调用命令传递实参，再由callee将接收到的参数拷贝到outgo空间里对应access的位置
   // level->frame_->AllocOutgoSpace(args.size() * reg_manager->WordSize());
   if(func_entry->level_->parent_ == nullptr){
-    //tiget main
+    //need to call tiget main
     //tigermain是最外层的，不需要static link
     level->frame_->AllocOutgoSpace(formalSize * reg_manager->WordSize());
     args = formals;
@@ -515,6 +490,7 @@ tr::ValAndTy *CallExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
     }
     else{
       //里面的函数(level big)要call外面(level small)定义的函数
+      //TODO::1211
       tr::Level *trace_level = level;
       llvm::Value *trace_sl = nullptr;
       while(callee_layer + 1 != now_layer){
@@ -539,6 +515,23 @@ tr::ValAndTy *CallExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
   return new tr::ValAndTy(call_val, result_ty);
 }
 
+tr::ValAndTy* HandleNilComparison(tr::ValAndTy* left_val_ty,tr::ValAndTy* right_val_ty, absyn::Oper op) {
+  // 如果两边都是Nil类型
+  if (left_val_ty->ty_ == type::NilTy::Instance() && right_val_ty->ty_ == type::NilTy::Instance()) {
+    return op == EQ_OP ? new tr::ValAndTy(llvm::ConstantInt::get(ir_builder->getInt1Ty(), 1), type::IntTy::Instance()) :
+                                  new tr::ValAndTy(llvm::ConstantInt::get(ir_builder->getInt1Ty(), 0), type::IntTy::Instance());
+  }
+
+  // 如果其中一边是Nil类型
+  llvm::Value* non_nil_val = left_val_ty->ty_ == type::NilTy::Instance() ? right_val_ty->val_ : left_val_ty->val_;
+  llvm::Value* val = ir_builder->CreatePtrToInt(non_nil_val, ir_builder->getInt64Ty());
+  llvm::Value* res = (op == EQ_OP) ?
+                      ir_builder->CreateICmpEQ(val, llvm::ConstantInt::get(ir_builder->getInt64Ty(), 0)) :
+                      ir_builder->CreateICmpNE(val, llvm::ConstantInt::get(ir_builder->getInt64Ty(), 0));
+
+  return new tr::ValAndTy(res, type::IntTy::Instance());
+}
+
 tr::ValAndTy *OpExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
                                tr::Level *level,
                                err::ErrorMsg *errormsg) const {
@@ -548,7 +541,6 @@ tr::ValAndTy *OpExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
   tr::ValAndTy *right_val_ty = nullptr;
   llvm::BasicBlock *origin_bb = ir_builder->GetInsertBlock();
   llvm::BasicBlock *right_last_bb = nullptr;
-  llvm::Function *parentFunction = origin_bb->getParent();
 
   llvm::Value *flag1 = nullptr;
   llvm::Value *flag2 = nullptr;
@@ -585,8 +577,8 @@ tr::ValAndTy *OpExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
     ir_builder->CreateBr(nextBlock);
 
     ir_builder->SetInsertPoint(nextBlock);
-    phi_node = ir_builder->CreatePHI(llvm::Type::getInt1Ty(ir_module->getContext()), 2);
-    phi_node->addIncoming(llvm::ConstantInt::get(ir_builder->getInt1Ty(), 0), origin_bb);
+    phi_node = ir_builder->CreatePHI(left_val_ty->val_->getType(), 2);
+    phi_node->addIncoming(llvm::ConstantInt::get(left_val_ty->val_->getType(), 0), origin_bb);
     phi_node->addIncoming(flag2, right_last_bb);
     return new tr::ValAndTy(phi_node, type::IntTy::Instance());
   case absyn::OR_OP:
@@ -666,27 +658,31 @@ tr::ValAndTy *OpExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
   case absyn::EQ_OP: {
     left_val_ty = this->left_->Translate(venv, tenv, level, errormsg);
     right_val_ty = this->right_->Translate(venv, tenv, level, errormsg);
-    if (left_val_ty->ty_->IsSameType(type::StringTy::Instance())){
+    if (left_val_ty->ty_->ActualTy()->IsSameType(type::StringTy::Instance()) && right_val_ty->ty_->ActualTy()->IsSameType(type::StringTy::Instance())){
       //just calls runtime–system function stringEqual
 
       val = ir_builder->CreateCall(string_equal,{left_val_ty->val_, right_val_ty->val_});
       neq_val =  ir_builder->CreateICmpEQ(val, llvm::ConstantInt::get(
                    llvm::Type::getInt1Ty(ir_builder->getContext()), 1));
       return new tr::ValAndTy( neq_val, type::IntTy::Instance());
+    } else if (left_val_ty->ty_ == type::NilTy::Instance() || right_val_ty->ty_ == type::NilTy::Instance()) {
+      return HandleNilComparison(left_val_ty, right_val_ty, this->oper_);
     }
     else {
-      val = ir_builder->CreateICmpEQ(left_val_ty->val_, right_val_ty->val_);
+      val = ir_builder->CreateICmpEQ(left_val_ty->val_, right_val_ty->val_); //Error
       return new tr::ValAndTy( val, type::IntTy::Instance());
     }
   }
   case absyn::NEQ_OP: {
     left_val_ty = this->left_->Translate(venv, tenv, level, errormsg);
     right_val_ty = this->right_->Translate(venv, tenv, level, errormsg);
-    if (left_val_ty->ty_->IsSameType(type::StringTy::Instance())){
+    if (left_val_ty->ty_->ActualTy()->IsSameType(type::StringTy::Instance()) && right_val_ty->ty_->ActualTy()->IsSameType(type::StringTy::Instance()) ){
       //just calls runtime–system function stringEqual
       val = ir_builder->CreateCall(string_equal,{left_val_ty->val_, right_val_ty->val_});
       neq_val = ir_builder->CreateICmpNE(val, llvm::ConstantInt::get(ir_builder->getInt1Ty(), 1));
       return new tr::ValAndTy( neq_val, type::IntTy::Instance());
+    } else if (left_val_ty->ty_ == type::NilTy::Instance() || right_val_ty->ty_ == type::NilTy::Instance()) {
+      return HandleNilComparison(left_val_ty, right_val_ty, this->oper_);
     }
     else {
       val = ir_builder->CreateICmpNE(left_val_ty->val_, right_val_ty->val_);
@@ -769,10 +765,13 @@ tr::ValAndTy *IfExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
   llvm::Function *parentFunction = func_stack.top();
   
   //First build all BasicBlocks (BB)
+  llvm::BasicBlock *testBlock = llvm::BasicBlock::Create(ir_module->getContext(), "if_test", parentFunction);
   llvm::BasicBlock *thenBlock = llvm::BasicBlock::Create(ir_module->getContext(), "if_then", parentFunction);
   llvm::BasicBlock *elseBlock = llvm::BasicBlock::Create(ir_module->getContext(), "if_else_b", parentFunction);
   llvm::BasicBlock *nextBlock = llvm::BasicBlock::Create(ir_module->getContext(), "if_next", parentFunction);
 
+  ir_builder->CreateBr(testBlock);
+  ir_builder->SetInsertPoint(testBlock);
   tr::ValAndTy *test_val_ty = this->test_->Translate(venv, tenv, level, errormsg);
   llvm::Value *icmp = ir_builder->CreateICmpNE(test_val_ty->val_, llvm::ConstantInt::get(test_val_ty->val_->getType(), 0));
   llvm::Value *test_val = test_val_ty->val_;
@@ -887,15 +886,7 @@ tr::ValAndTy *ForExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
                                 tr::Level *level,
                                 err::ErrorMsg *errormsg) const {
   /* TODO: Put your lab5-part1 code here */
-  /*tr::Access *var_access = tr::Access::AllocLocal(level, this->escape_);
-  tr::ValAndTy *init_val_and_type = this->init_->Translate(venv, tenv, level, errormsg);
-  llvm::Value *addr = var_access->access_->ToLLVMVal(level->get_sp());
-  llvm::Value *ptr = ir_builder->CreateIntToPtr(
-          addr,
-          init_val_and_type->ty_->GetLLVMType()->getPointerTo());
-  ir_builder->CreateStore(init_val_and_type->val_, ptr);
-  venv->Enter(this->var_, new env::VarEntry(var_access, init_val_and_type->ty_->ActualTy()));*/
-  venv->BeginScope();
+  
   llvm::BasicBlock *origin_bb = ir_builder->GetInsertBlock();
   llvm::Function *parentFunction = func_stack.top();
   llvm::BasicBlock *testBlock = llvm::BasicBlock::Create(ir_module->getContext(), "for_test", parentFunction);
@@ -907,12 +898,12 @@ tr::ValAndTy *ForExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
   tr::ValAndTy *low_val_ty = this->lo_->Translate(venv, tenv, level, errormsg);
   tr::ValAndTy *high_val_ty = this->hi_->Translate(venv, tenv, level, errormsg);
 
-
   llvm::Value *addr = it_access->access_->ToLLVMVal();
   llvm::Value *it_ptr = ir_builder->CreateIntToPtr(
           addr,
           low_val_ty->ty_->GetLLVMType()->getPointerTo());
   ir_builder->CreateStore(low_val_ty->val_ , it_ptr);
+  venv->BeginScope();
   venv->Enter(this->var_, new env::VarEntry(it_access, low_val_ty->ty_));
 
   /*test block*/
@@ -937,7 +928,11 @@ tr::ValAndTy *ForExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
   /*increBlock*/
   ir_builder->SetInsertPoint(increBlock);
   llvm::Value* add_val = ir_builder->CreateAdd(load_it, llvm::ConstantInt::get(ir_builder->getInt32Ty(), 1));
-  ir_builder->CreateStore(add_val, it_ptr);
+  llvm::Value *addrIt = it_access->access_->ToLLVMVal();
+  llvm::Value *it_ptr_se = ir_builder->CreateIntToPtr(
+          addrIt,
+          low_val_ty->ty_->GetLLVMType()->getPointerTo());
+  ir_builder->CreateStore(add_val, it_ptr_se);
   ir_builder->CreateBr(testBlock);
 
   /*done block*/
@@ -967,13 +962,8 @@ tr::ValAndTy *LetExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
   for(Dec *dec : this->decs_->GetList()){
     dec->Translate(venv, tenv, level, errormsg);
   }
-  tr::ValAndTy *body_val_ty = nullptr;
-  if(!body_){
-    body_val_ty = new tr::ValAndTy(NULL, type::VoidTy::Instance());
-  }
-  else {
-    body_val_ty = body_->Translate(venv, tenv, level, errormsg);
-  }
+  tr::ValAndTy *body_val_ty = body_->Translate(venv, tenv, level, errormsg);
+  
   tenv->EndScope();
   venv->EndScope();
   return body_val_ty;
