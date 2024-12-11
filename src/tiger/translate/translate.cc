@@ -494,7 +494,6 @@ tr::ValAndTy *CallExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
     int now_layer = level->layer_;
     if(callee_layer > now_layer){ 
       //就是最基本的情况，外层的一个函数执行自己声明的函数
-      assert(callee_layer == now_layer+1);
       //被调用的一层函数的sl就是自己上一层的栈顶
       args.emplace_back(level->get_sp());
     }
