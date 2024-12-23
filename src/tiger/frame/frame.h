@@ -64,6 +64,10 @@ public:
 
   [[nodiscard]] virtual temp::Temp *FramePointer() = 0;
 
+  [[nodiscard]] virtual temp::Temp *GetRax() = 0;
+
+  [[nodiscard]] virtual temp::Temp *GetRsp() = 0;
+
   temp::Map *temp_map_;
 
 protected:

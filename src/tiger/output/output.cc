@@ -144,7 +144,7 @@ void ProcFrag::OutputAssem(FILE *out, OutputPhase phase, bool need_ra) const {
     cg::CodeGen code_gen(std::move(traces));
     code_gen.Codegen();
     assem_instr = code_gen.TransferAssemInstr();
-    TigerLog(assem_instr.get(), color);
+    //TigerLog(assem_instr.get(), color);
   }
 
   assem::InstrList *il = assem_instr.get()->GetInstrList();
@@ -170,16 +170,24 @@ void ProcFrag::OutputAssem(FILE *out, OutputPhase phase, bool need_ra) const {
       frame_info_map[proc_name].second / 16 * 16 + 8;
 
   fprintf(out, ".globl %s\n", proc_name.data());
+  TigerLog(".globl %s\n", proc_name.data());
   fprintf(out, ".type %s, @function\n", proc_name.data());
+  TigerLog(".type %s, @function\n", proc_name.data());
   fprintf(out, ".set %s_framesize_local, %d\n", proc_name.data(),
+          frame_info_map[proc_name].second);
+  TigerLog( ".set %s_framesize_local, %d\n", proc_name.data(),
           frame_info_map[proc_name].second);
   // prologue
   fprintf(out, "%s", proc->prolog_.data());
+  TigerLog("%s", proc->prolog_.data());
   // body
   proc->body_->Print(out, color);
+  TigerLog(assem_instr.get(), color);
   // epilog_
   fprintf(out, "%s", proc->epilog_.data());
+  TigerLog("%s", proc->epilog_.data());
   fprintf(out, ".size %s, .-%s\n", proc_name.data(), proc_name.data());
+  TigerLog(".size %s, .-%s\n", proc_name.data(), proc_name.data());
 }
 
 void StringFrag::OutputAssem(FILE *out, OutputPhase phase, bool need_ra) const {

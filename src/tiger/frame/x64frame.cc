@@ -78,6 +78,10 @@ int X64RegManager::WordSize() { return 8; }
 
 temp::Temp *X64RegManager::FramePointer() { return regs_[FP]; }
 
+temp::Temp *X64RegManager::GetRax() { return regs_[RAX]; }
+
+temp::Temp *X64RegManager::GetRsp() { return regs_[RSP]; }
+
 class InFrameAccess : public Access {
 public:
   int offset;
@@ -157,6 +161,51 @@ frame::Frame *NewFrame(temp::Label *name, std::list<bool> formals) {
 assem::InstrList *ProcEntryExit1(std::string_view function_name,
                                  assem::InstrList *body) {
   // TODO: your lab5 code here
+  /* Store instructions to save any callee-saved registers- including the return address register – used within the function
+     Load instructions to restore the callee-save registers
+  */
+ /*movq %r15,t139
+  movq %r14,t138
+  movq %r13,t137
+  movq %r12,t136
+  movq %rbx,t135
+  movq %rbp,t134
+
+  ...
+
+  movq t134,%rbp
+  movq t135,%rbx
+  movq t136,%r12
+  movq t137,%r13
+  movq t138,%r14
+  movq t139,%r15
+  */
+  if(function_name == "tigermain"){
+    body->Append(new assem::LabelInstr(std::string(function_name) + "_end"));
+    return body;
+  }
+  temp::TempList *calleeTemps = reg_manager->CalleeSaves();
+  size_t size = calleeTemps->GetList().size();
+  auto calleeRegsList = calleeTemps->GetList();
+  assert(size == 6);
+  temp::Temp *r15Tmp = temp::TempFactory::NewTemp();
+  temp::Temp *r14Tmp = temp::TempFactory::NewTemp();
+  temp::Temp *r13Tmp = temp::TempFactory::NewTemp();
+  temp::Temp *r12Tmp = temp::TempFactory::NewTemp();
+  temp::Temp *rbxTmp = temp::TempFactory::NewTemp();
+  temp::Temp *rbpTmp = temp::TempFactory::NewTemp();
+  temp::TempList temps({rbpTmp, rbxTmp, r12Tmp, r13Tmp, r14Tmp, r15Tmp});
+  auto tempList = temps.GetList();
+
+  for(auto it = calleeRegsList.begin() , it2 = tempList.begin(); it != calleeRegsList.end() && it2 != tempList.end(); it++, it2++){
+    //NOTE::回来看是不是应该用MoveIns而不是OperIns
+    body->Insert(body->GetList().begin(), new assem::MoveInstr("movq `s0,`d0",  new temp::TempList(*it2), new temp::TempList(*it)));
+  }
+
+  body->Append(new assem::LabelInstr(std::string(function_name) + "_end"));
+  for(auto it = calleeRegsList.begin() , it2 = tempList.begin(); it != calleeRegsList.end() && it2 != tempList.end(); it++, it2++){
+    body->Append(new assem::MoveInstr("movq `s0,`d0",  new temp::TempList(*it), new temp::TempList(*it2)));
+  }
   return body;
 }
 
@@ -184,6 +233,27 @@ assem::Proc *ProcEntryExit3(std::string_view function_name,
   std::string epilogue = "";
 
   // TODO: your lab5 code here
+  //p120 1 2 3 9 10 11
+  /*
+  tigermain:
+  movq tigermain_framesize_global(%rip), %rax
+  subq %rax,%rsp
+  …
+  
+  movq tigermain_framesize_global(%rip), %rdi
+  addq %rdi,%rsp
+  retq
+  */
+  std::string fn(function_name);
+  prologue += fn + ":\n";
+  //part1的代码已经手动实现了减去栈的指令
+  // prologue += "movq " + fn + "_framesize_global(%rip), %rax\n";
+  // prologue += "subq %rax, %rsp\n";
+
+  epilogue += "movq " + fn + "_framesize_global(%rip), %rdi\n";
+  epilogue += "addq %rdi, %rsp\n";
+  epilogue += "retq\n";
+
   return new assem::Proc(prologue, body, epilogue);
 }
 

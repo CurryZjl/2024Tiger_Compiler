@@ -48,6 +48,10 @@ public:
   [[nodiscard]] int WordSize() override;
 
   [[nodiscard]] temp::Temp *FramePointer() override;
+
+  [[nodiscard]] temp::Temp *GetRax() override;
+
+  [[nodiscard]] temp::Temp *GetRsp() override;
 };
 
 } // namespace frame
