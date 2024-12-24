@@ -69,6 +69,7 @@ private:
   temp::Temp *phi_temp_;
   std::unique_ptr<canon::Traces> traces_;
   std::unique_ptr<AssemInstr> assem_instr_;
+  uint64_t phi_unicode = 0;
 };
 
 } // namespace cg

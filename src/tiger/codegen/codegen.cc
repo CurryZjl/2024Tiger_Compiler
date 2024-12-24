@@ -470,8 +470,9 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           }
           if (llvm::ConstantInt *constIdx = llvm::dyn_cast<llvm::ConstantInt>(idx2)) {
             //NOTE
-              if(constIdx->getSExtValue() == 1);
+              if(constIdx->getSExtValue() == 1){
                 totalOffset += 4;
+              }
           } else {
               throw std::runtime_error("Non-constant index in multi-index constant GEP");
           }
@@ -649,6 +650,11 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           std::vector<temp::Label*> *labels = new std::vector<temp::Label*>();
           labels->push_back(label);
           assem::Targets *jumps = new assem::Targets(labels);
+          /*special for phi*/
+          int bbIndex = bb_map_->at(bb);
+          instr_list->Append(new assem::OperInstr(
+              "movq $" + std::to_string(bbIndex) + ", %rax",
+                nullptr, nullptr, nullptr));
           instr_list->Append(new assem::OperInstr("jmp `j0", nullptr, nullptr, jumps));
         } else if (inst.getNumOperands() == 3) {
           //br i1 %20, label %if_then, label %if_else
@@ -673,7 +679,10 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           std::string label_false_name = label_false_llvm->getName().str();
           temp::Label *label_true = temp::LabelFactory::NamedLabel(label_true_name);
           temp::Label *label_false = temp::LabelFactory::NamedLabel(label_false_name);
-
+          int bbIndex = bb_map_->at(bb);
+          instr_list->Append(new assem::OperInstr(
+              "movq $" + std::to_string(bbIndex) + ", %rax",
+                nullptr, nullptr, nullptr));
           //生成比较和跳转指令
           instr_list->Append(new assem::OperInstr("cmpq $0, `s0", nullptr, new temp::TempList(cond_temp), nullptr));
           std::vector<temp::Label*> *labels_true = new std::vector<temp::Label*>();
@@ -765,8 +774,95 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
     //11
     case llvm::Instruction::PHI: {
         /* code */
-        throw std::runtime_error(std::string("PHI instruction: ") +
-                           inst.getOpcodeName());
+        llvm::PHINode *phiNode = llvm::dyn_cast<llvm::PHINode>(&inst);
+        auto it = temp_map_->find(&inst);
+        if(it == temp_map_->end()){
+          throw std::runtime_error("phi::Return value not found in temp_map");
+        }
+        temp::Temp *dest_temp = it->second;
+
+        unsigned num = phiNode->getNumIncomingValues();
+        assert(num == 2);
+        llvm::BasicBlock *pred_bb1 = phiNode->getIncomingBlock(0);
+        llvm::Value *incoming_value1 = phiNode->getIncomingValue(0);
+        int pred_bb_index1 = bb_map_->at(pred_bb1);
+        std::string label1Name = bb->getName().str() + std::to_string(pred_bb_index1) + "_" + std::to_string(phi_unicode++);
+        temp::Label *label1 = temp::LabelFactory::NamedLabel(label1Name);
+        std::vector<temp::Label*> *labels1 = new std::vector<temp::Label*>();
+        labels1->push_back(label1);
+        assem::Targets *jumps1 = new assem::Targets(labels1);
+
+        llvm::BasicBlock *pred_bb2 = phiNode->getIncomingBlock(1);
+        llvm::Value *incoming_value2 = phiNode->getIncomingValue(1);
+        int pred_bb_index2 = bb_map_->at(pred_bb2);
+        std::string label2Name = bb->getName().str() + std::to_string(pred_bb_index2) + "_" + std::to_string(phi_unicode++);
+        temp::Label *label2 = temp::LabelFactory::NamedLabel(label2Name);
+        std::vector<temp::Label*> *labels2 = new std::vector<temp::Label*>();
+        labels2->push_back(label2);
+        assem::Targets *jumps2 = new assem::Targets(labels2);
+
+        std::string phiEndName = bb->getName().str() + "end_" + std::to_string(phi_unicode++);
+        temp::Label *label3 = temp::LabelFactory::NamedLabel(phiEndName);
+        std::vector<temp::Label*> *labels3 = new std::vector<temp::Label*>();
+        labels3->push_back(label3);
+        assem::Targets *jumps3 = new assem::Targets(labels3);
+
+        /*准备工作完成，开始生成指令*/
+        
+        //1. cmp index1
+        instr_list->Append(new assem::OperInstr(
+              "cmp $" + std::to_string(pred_bb_index1) + ", %rax",
+              nullptr, nullptr, nullptr));
+        //2. je label1
+        instr_list->Append(new assem::OperInstr("je `j0", nullptr, nullptr, jumps1));
+        //3. cmp index2
+        instr_list->Append(new assem::OperInstr(
+              "cmp $" + std::to_string(pred_bb_index2) + ", %rax",
+              nullptr, nullptr, nullptr));
+        //4. je label2
+        instr_list->Append(new assem::OperInstr("je `j0", nullptr, nullptr, jumps2));
+        //5. set label1
+        instr_list->Append(new assem::LabelInstr(label1Name));
+        //6. move value1 to dest
+        if(llvm::ConstantInt *constInt1 = llvm::dyn_cast<llvm::ConstantInt>(incoming_value1)){
+          int64_t constValue = constInt1->getSExtValue();
+          instr_list->Append(new assem::OperInstr(
+              "movq $" + std::to_string(constValue) + ", `d0",
+              new temp::TempList(dest_temp), nullptr, nullptr));
+        } else {
+          auto iti = temp_map_->find(incoming_value1);
+          if (iti == temp_map_->end()) {
+              throw std::runtime_error("PHI incoming value1 not found in temp_map");
+          }
+          temp::Temp *src_temp = iti->second;
+          instr_list->Append(new assem::OperInstr(
+              "movp `s0, `d0",
+              new temp::TempList(dest_temp), new temp::TempList(src_temp), nullptr));
+        }
+        //7. jmp to end
+        instr_list->Append(new assem::OperInstr("jmp `j0", nullptr, nullptr, jumps3));
+        //8. set label2
+        instr_list->Append(new assem::LabelInstr(label2Name));
+        //9. move value2 to dest
+        if(llvm::ConstantInt *constInt2 = llvm::dyn_cast<llvm::ConstantInt>(incoming_value2)){
+          int64_t constValue = constInt2->getSExtValue();
+          instr_list->Append(new assem::OperInstr(
+              "movq $" + std::to_string(constValue) + ", `d0",
+              new temp::TempList(dest_temp), nullptr, nullptr));
+        } else {
+          auto iti = temp_map_->find(incoming_value2);
+          if (iti == temp_map_->end()) {
+              throw std::runtime_error("PHI incoming value1 not found in temp_map");
+          }
+          temp::Temp *src_temp = iti->second;
+          instr_list->Append(new assem::OperInstr(
+              "movp `s0, `d0",
+              new temp::TempList(dest_temp), new temp::TempList(src_temp), nullptr));
+        }
+        //10. jmp to end
+        instr_list->Append(new assem::OperInstr("jmp `j0", nullptr, nullptr, jumps3));
+        //11. set end
+        instr_list->Append(new assem::LabelInstr(phiEndName));
         break;
     }
     default:
