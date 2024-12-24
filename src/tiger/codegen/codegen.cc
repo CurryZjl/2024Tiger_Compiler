@@ -177,13 +177,13 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           int64_t constValue = constInt->getSExtValue();
           assert( it2 != temp_map_->end() );
           temp::Temp *src2_temp = it2->second; // 第二个操作数应该是临时变量
-          //1. dest = src
-          instr_list->Append(new assem::MoveInstr(
-          "movq `s0,`d0", new temp::TempList(dest_temp), new temp::TempList(src2_temp)));
-          //2. dest = dest + c
+          //1. dest = c
           instr_list->Append(new assem::OperInstr(
-            "addq $" + std::to_string(constValue) + ", `d0", 
-            new temp::TempList(dest_temp), nullptr, nullptr));
+          "movq $" + std::to_string(constValue) + ",`d0", new temp::TempList(dest_temp), nullptr, nullptr));
+          //2. dest = dest + src
+          instr_list->Append(new assem::OperInstr(
+            "addq `s0, `d0", 
+            new temp::TempList(dest_temp), new temp::TempList(src2_temp), nullptr));
         }
         else if (llvm::ConstantInt *constInt = llvm::dyn_cast<llvm::ConstantInt>(op2)){
           //第二个参数是常数，很明显这是leaq指令 NOTE::初步认为只有add里面有leaq
@@ -662,9 +662,11 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           * Get the value of %20 (which is set in icmp instruction)
           * Compare with 1 or 0, and jump to the corresponding label
           */
-          llvm::Value *cond = inst.getOperand(0);
-          llvm::Value *label_true_llvm = inst.getOperand(1);
-          llvm::Value *label_false_llvm = inst.getOperand(2);
+          llvm::BranchInst *brInst = llvm::dyn_cast<llvm::BranchInst>(&inst);
+          assert(brInst->isConditional());
+          llvm::Value *cond = brInst->getCondition();
+          llvm::Value *label_true_llvm = brInst->getSuccessor(1);
+          llvm::Value *label_false_llvm = brInst->getSuccessor(0);
           assert(cond->getType()->isIntegerTy(1) && "Expected i1 as condition for conditional br");
           assert(label_true_llvm->getType()->isLabelTy() && label_false_llvm->getType()->isLabelTy() &&
                 "Expected labels as operands for conditional br");
@@ -707,10 +709,10 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         llvm::Value *op1 = icmpInst->getOperand(0);
         llvm::Value *op2 = icmpInst->getOperand(1);
         /*
-          注意这里是反的 llvm指令里面，%d = icmp eq i32 %a %b 
+          注意这里是反的 llvm指令里面，%d = icmp gt i32 %a %b 
           对应汇编会是 
           cmpq b a
-          sete d
+          setg d
         */
         auto it1 = temp_map_->find(op1);
         auto it2 = temp_map_->find(op2);
