@@ -454,7 +454,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           
           uint32_t typeSize = 4;
           auto rax = reg_manager->GetRax();
-          instr_list->Append(new assem::OperInstr("imul $" + std::to_string(typeSize) + ", `d0", new temp::TempList(rax), nullptr, nullptr));
+          instr_list->Append(new assem::OperInstr("imulq $" + std::to_string(typeSize) + ", `d0", new temp::TempList(rax), nullptr, nullptr));
           // 将计算出的偏移量加到基地址上
           instr_list->Append(new assem::OperInstr("addq `s0, `d0", new temp::TempList(resultTemp), new temp::TempList(rax), nullptr));
         } else if (gepInst->getNumIndices() == 2) {
@@ -629,6 +629,11 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
             instr_list->Append(new assem::OperInstr("movq `s0, `d0", new temp::TempList(rax), new temp::TempList(src_temp), nullptr));
           }
         
+        } else {
+           int bbIndex = bb_map_->at(bb);
+            instr_list->Append(new assem::OperInstr(
+                "movq $" + std::to_string(bbIndex) + ", %rax",
+                  nullptr, nullptr, nullptr));
         }
         std::string exitLabelName = std::string(function_name) + "_end";
         temp::Label *exit_label = temp::LabelFactory::NamedLabel(exitLabelName);
@@ -811,15 +816,15 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
 
         /*准备工作完成，开始生成指令*/
         
-        //1. cmp index1
+        //1. cmpq index1
         instr_list->Append(new assem::OperInstr(
-              "cmp $" + std::to_string(pred_bb_index1) + ", %rax",
+              "cmpq $" + std::to_string(pred_bb_index1) + ", %rax",
               nullptr, nullptr, nullptr));
         //2. je label1
         instr_list->Append(new assem::OperInstr("je `j0", nullptr, nullptr, jumps1));
-        //3. cmp index2
+        //3. cmpq index2
         instr_list->Append(new assem::OperInstr(
-              "cmp $" + std::to_string(pred_bb_index2) + ", %rax",
+              "cmpq $" + std::to_string(pred_bb_index2) + ", %rax",
               nullptr, nullptr, nullptr));
         //4. je label2
         instr_list->Append(new assem::OperInstr("je `j0", nullptr, nullptr, jumps2));
@@ -838,7 +843,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           }
           temp::Temp *src_temp = iti->second;
           instr_list->Append(new assem::OperInstr(
-              "movp `s0, `d0",
+              "movq `s0, `d0",
               new temp::TempList(dest_temp), new temp::TempList(src_temp), nullptr));
         }
         //7. jmp to end
@@ -854,12 +859,18 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         } else {
           auto iti = temp_map_->find(incoming_value2);
           if (iti == temp_map_->end()) {
-              throw std::runtime_error("PHI incoming value1 not found in temp_map");
+            //throw std::runtime_error("PHI incoming value2 not found in temp_map");
+            //assert(incoming_value2 == NULL);
+            instr_list->Append(new assem::OperInstr(
+              "movq $0, `d0",
+              new temp::TempList(dest_temp), nullptr, nullptr));
+          } else {
+            temp::Temp *src_temp = iti->second;
+            instr_list->Append(new assem::OperInstr(
+                "movq `s0, `d0",
+                new temp::TempList(dest_temp), new temp::TempList(src_temp), nullptr));
           }
-          temp::Temp *src_temp = iti->second;
-          instr_list->Append(new assem::OperInstr(
-              "movp `s0, `d0",
-              new temp::TempList(dest_temp), new temp::TempList(src_temp), nullptr));
+       
         }
         //10. jmp to end
         instr_list->Append(new assem::OperInstr("jmp `j0", nullptr, nullptr, jumps3));
