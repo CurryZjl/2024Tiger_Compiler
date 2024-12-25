@@ -449,14 +449,14 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
               throw std::runtime_error("Index not found in temp_map");
           }
           temp::Temp *idxTemp = idxIt->second;
-          instr_list->Append(new assem::OperInstr("movq `s0, %rax", nullptr, new temp::TempList(idxTemp), nullptr));
+          instr_list->Append(new assem::OperInstr("movq `s0, %r9", nullptr, new temp::TempList(idxTemp), nullptr));
           //NOTE should use getSize(gepInst->getSourceElementType());
           
           uint32_t typeSize = 4;
-          auto rax = reg_manager->GetRax();
-          instr_list->Append(new assem::OperInstr("imulq $" + std::to_string(typeSize) + ", `d0", new temp::TempList(rax), nullptr, nullptr));
+         
+          instr_list->Append(new assem::OperInstr("imulq $" + std::to_string(typeSize) + ", %r9", nullptr, nullptr, nullptr));
           // 将计算出的偏移量加到基地址上
-          instr_list->Append(new assem::OperInstr("addq `s0, `d0", new temp::TempList(resultTemp), new temp::TempList(rax), nullptr));
+          instr_list->Append(new assem::OperInstr("addq %r9, `d0", new temp::TempList(resultTemp), nullptr, nullptr));
         } else if (gepInst->getNumIndices() == 2) {
           uint64_t totalOffset = 0;
           llvm::Value *idx1 = gepInst->getOperand(1);
@@ -464,7 +464,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           
           if (llvm::ConstantInt *constIdx = llvm::dyn_cast<llvm::ConstantInt>(idx1)) {
               assert(constIdx->getSExtValue() == 0);
-              totalOffset += 0;
+              //totalOffset += 0;
           } else {
               throw std::runtime_error("Non-constant index1 in multi-index constant GEP");
           }
@@ -517,12 +517,6 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         break;
     }
     //6
-    case llvm::Instruction::BitCast: {
-        /* code */
-        //ll文件里面似乎没用到
-        throw std::runtime_error("a instruction if BitCast");
-        break;
-    }
     case llvm::Instruction::ZExt: {
         /* code */
         //%43 = zext i1 %42 to i32
@@ -603,9 +597,9 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
                 throw std::runtime_error("Return value not found in temp_map");
             }
             temp::Temp *destTemp = it->second;
-            temp::Temp *rax = reg_manager->GetRax();
+           
             // Move the return value from %rax to the destination temp
-            instr_list->Append(new assem::MoveInstr("movq `s0, `d0", new temp::TempList(destTemp), new temp::TempList(rax)));
+            instr_list->Append(new assem::MoveInstr("movq %rax, `d0", new temp::TempList(destTemp), nullptr));
         }
 
         break;
@@ -625,8 +619,8 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
             auto it = temp_map_->find(retVal);
             assert(it != temp_map_->end());
             temp::Temp *src_temp = it->second;
-            temp::Temp *rax = reg_manager->GetRax();
-            instr_list->Append(new assem::OperInstr("movq `s0, `d0", new temp::TempList(rax), new temp::TempList(src_temp), nullptr));
+           
+            instr_list->Append(new assem::OperInstr("movq `s0, %rax", nullptr, new temp::TempList(src_temp), nullptr));
           }
         
         }
@@ -653,7 +647,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           /*special for phi*/
           int bbIndex = bb_map_->at(bb);
           instr_list->Append(new assem::OperInstr(
-              "movq $" + std::to_string(bbIndex) + ", %rax",
+              "movq $" + std::to_string(bbIndex) + ", %r10",
                 nullptr, nullptr, nullptr));
           instr_list->Append(new assem::OperInstr("jmp `j0", nullptr, nullptr, jumps));
         } else if (inst.getNumOperands() == 3) {
@@ -682,16 +676,15 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           temp::Label *label_true = temp::LabelFactory::NamedLabel(label_true_name);
           temp::Label *label_false = temp::LabelFactory::NamedLabel(label_false_name);
           int bbIndex = bb_map_->at(bb);
-          instr_list->Append(new assem::OperInstr(
-              "movq $" + std::to_string(bbIndex) + ", %rax",
-                nullptr, nullptr, nullptr));
           //生成比较和跳转指令
+          instr_list->Append(new assem::OperInstr(
+              "movq $" + std::to_string(bbIndex) + ", %r10",
+                nullptr, nullptr, nullptr));
           instr_list->Append(new assem::OperInstr("cmpq $0, `s0", nullptr, new temp::TempList(cond_temp), nullptr));
           std::vector<temp::Label*> *labels_true = new std::vector<temp::Label*>();
           labels_true->push_back(label_true);
           assem::Targets *jumps_true = new assem::Targets(labels_true);
           instr_list->Append(new assem::OperInstr("jne `j0", nullptr, nullptr, jumps_true));
-
           std::vector<temp::Label*> *labels_false = new std::vector<temp::Label*>();
           labels_false->push_back(label_false);
           assem::Targets *jumps_false = new assem::Targets(labels_false);
@@ -813,13 +806,13 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         
         //1. cmpq index1
         instr_list->Append(new assem::OperInstr(
-              "cmpq $" + std::to_string(pred_bb_index1) + ", %rax",
+              "cmpq $" + std::to_string(pred_bb_index1) + ", %r10",
               nullptr, nullptr, nullptr));
         //2. je label1
         instr_list->Append(new assem::OperInstr("je `j0", nullptr, nullptr, jumps1));
         //3. cmpq index2
         instr_list->Append(new assem::OperInstr(
-              "cmpq $" + std::to_string(pred_bb_index2) + ", %rax",
+              "cmpq $" + std::to_string(pred_bb_index2) + ", %r10",
               nullptr, nullptr, nullptr));
         //4. je label2
         instr_list->Append(new assem::OperInstr("je `j0", nullptr, nullptr, jumps2));
