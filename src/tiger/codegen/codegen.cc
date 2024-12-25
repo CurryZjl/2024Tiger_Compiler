@@ -451,8 +451,8 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           temp::Temp *idxTemp = idxIt->second;
           instr_list->Append(new assem::OperInstr("movq `s0, %r9", nullptr, new temp::TempList(idxTemp), nullptr));
           //NOTE should use getSize(gepInst->getSourceElementType());
-          
-          uint32_t typeSize = 4;
+          llvm::Type *idxType = gepInst->getOperand(1)->getType();
+          uint32_t typeSize = 8;
          
           instr_list->Append(new assem::OperInstr("imulq $" + std::to_string(typeSize) + ", %r9", nullptr, nullptr, nullptr));
           // 将计算出的偏移量加到基地址上
