@@ -629,11 +629,6 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
             instr_list->Append(new assem::OperInstr("movq `s0, `d0", new temp::TempList(rax), new temp::TempList(src_temp), nullptr));
           }
         
-        } else {
-           int bbIndex = bb_map_->at(bb);
-            instr_list->Append(new assem::OperInstr(
-                "movq $" + std::to_string(bbIndex) + ", %rax",
-                  nullptr, nullptr, nullptr));
         }
         std::string exitLabelName = std::string(function_name) + "_end";
         temp::Label *exit_label = temp::LabelFactory::NamedLabel(exitLabelName);
@@ -670,8 +665,8 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           llvm::BranchInst *brInst = llvm::dyn_cast<llvm::BranchInst>(&inst);
           assert(brInst->isConditional());
           llvm::Value *cond = brInst->getCondition();
-          llvm::Value *label_true_llvm = brInst->getSuccessor(1);
-          llvm::Value *label_false_llvm = brInst->getSuccessor(0);
+          llvm::Value *label_true_llvm = brInst->getSuccessor(0);
+          llvm::Value *label_false_llvm = brInst->getSuccessor(1);
           assert(cond->getType()->isIntegerTy(1) && "Expected i1 as condition for conditional br");
           assert(label_true_llvm->getType()->isLabelTy() && label_false_llvm->getType()->isLabelTy() &&
                 "Expected labels as operands for conditional br");
@@ -695,7 +690,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           std::vector<temp::Label*> *labels_true = new std::vector<temp::Label*>();
           labels_true->push_back(label_true);
           assem::Targets *jumps_true = new assem::Targets(labels_true);
-          instr_list->Append(new assem::OperInstr("je `j0", nullptr, nullptr, jumps_true));
+          instr_list->Append(new assem::OperInstr("jne `j0", nullptr, nullptr, jumps_true));
 
           std::vector<temp::Label*> *labels_false = new std::vector<temp::Label*>();
           labels_false->push_back(label_false);
@@ -735,7 +730,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         } else {
           assert(it2 != temp_map_->end());
           temp::Temp *src2_temp = it2->second;
-          instr_list->Append(new assem::OperInstr("cmpq `s0, `s1", new temp::TempList(dest_temp), new temp::TempList({src2_temp, src1_temp}), nullptr));
+          instr_list->Append(new assem::OperInstr("cmpq `s0, `s1", nullptr, new temp::TempList({src2_temp, src1_temp}), nullptr));
         }
       
         std::string setInstr;
@@ -793,7 +788,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         llvm::BasicBlock *pred_bb1 = phiNode->getIncomingBlock(0);
         llvm::Value *incoming_value1 = phiNode->getIncomingValue(0);
         int pred_bb_index1 = bb_map_->at(pred_bb1);
-        std::string label1Name = bb->getName().str() + std::to_string(pred_bb_index1) + "_" + std::to_string(phi_unicode++);
+        std::string label1Name = bb->getName().str() +"_phiindex" + std::to_string(pred_bb_index1) + "_phicode" + std::to_string(phi_unicode++);
         temp::Label *label1 = temp::LabelFactory::NamedLabel(label1Name);
         std::vector<temp::Label*> *labels1 = new std::vector<temp::Label*>();
         labels1->push_back(label1);
@@ -802,13 +797,13 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         llvm::BasicBlock *pred_bb2 = phiNode->getIncomingBlock(1);
         llvm::Value *incoming_value2 = phiNode->getIncomingValue(1);
         int pred_bb_index2 = bb_map_->at(pred_bb2);
-        std::string label2Name = bb->getName().str() + std::to_string(pred_bb_index2) + "_" + std::to_string(phi_unicode++);
+        std::string label2Name = bb->getName().str() +"_phiindex" + std::to_string(pred_bb_index2) + "_phicode" + std::to_string(phi_unicode++);
         temp::Label *label2 = temp::LabelFactory::NamedLabel(label2Name);
         std::vector<temp::Label*> *labels2 = new std::vector<temp::Label*>();
         labels2->push_back(label2);
         assem::Targets *jumps2 = new assem::Targets(labels2);
 
-        std::string phiEndName = bb->getName().str() + "end_" + std::to_string(phi_unicode++);
+        std::string phiEndName = bb->getName().str() + "_phiend";
         temp::Label *label3 = temp::LabelFactory::NamedLabel(phiEndName);
         std::vector<temp::Label*> *labels3 = new std::vector<temp::Label*>();
         labels3->push_back(label3);
