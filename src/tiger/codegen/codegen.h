@@ -45,7 +45,10 @@ public:
   // check if the value is %sp in llvm
   bool IsRsp(llvm::Value *val, std::string_view function_name) const {
     // TODO: your lab5 code here
-    return false;
+    std::string_view name = val->getName();
+    std::string expected_name = std::string(function_name) + "_sp";
+    std::string_view sv = expected_name;
+    return sv == name;
   }
 
   // bb is to add move instruction to record which block it jumps from
@@ -66,6 +69,7 @@ private:
   temp::Temp *phi_temp_;
   std::unique_ptr<canon::Traces> traces_;
   std::unique_ptr<AssemInstr> assem_instr_;
+  uint64_t phi_unicode = 0;
 };
 
 } // namespace cg

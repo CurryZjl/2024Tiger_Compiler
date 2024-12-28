@@ -41,3 +41,7 @@ testdata/lab5or6/testcases/*.s
 
 # python cache
 scripts/lab5_test/__pycache__/
+
+# llvm
+includes/llvm-14/**
+includes/llvm-c-14/**
