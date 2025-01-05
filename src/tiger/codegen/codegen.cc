@@ -183,7 +183,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           //2. dest = dest + src
           instr_list->Append(new assem::OperInstr(
             "addq `s0, `d0", 
-            new temp::TempList(dest_temp), new temp::TempList(src2_temp), nullptr));
+            new temp::TempList(dest_temp), new temp::TempList({src2_temp, dest_temp}), nullptr));
         }
         else if (llvm::ConstantInt *constInt = llvm::dyn_cast<llvm::ConstantInt>(op2)){
           //第二个参数是常数，很明显这是leaq指令 NOTE::初步认为只有add里面有leaq
@@ -205,7 +205,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           "movq `s0,`d0", new temp::TempList(dest_temp), new temp::TempList(src1_temp)));
           //2. dest = dest + src2
           instr_list->Append(new assem::OperInstr(
-              "addq `s0, `d0", new temp::TempList(dest_temp), new temp::TempList(src2_temp), nullptr));
+              "addq `s0, `d0", new temp::TempList(dest_temp), new temp::TempList({src2_temp, dest_temp}), nullptr));
         }
         
         break;
@@ -241,7 +241,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           //step2 dest = dest - src2
           instr_list->Append(new assem::OperInstr(
             "subq `s0, `d0", 
-            new temp::TempList(dest_temp), new temp::TempList(src2_temp), nullptr));
+            new temp::TempList(dest_temp), new temp::TempList({src2_temp, dest_temp}), nullptr));
         }
         else if (llvm::ConstantInt *constInt = llvm::dyn_cast<llvm::ConstantInt>(op2)){
           //第二个参数是常数
@@ -254,7 +254,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           "movq `s0,`d0", new temp::TempList(dest_temp), new temp::TempList(src1_temp)));
           instr_list->Append(new assem::OperInstr(
             "subq $" + std::to_string(constValue) + ", `d0", 
-            new temp::TempList(dest_temp), nullptr, nullptr));
+            new temp::TempList(dest_temp), new temp::TempList(dest_temp), nullptr));
         } else {
           //dest = src1 - src2
           //special:: %_sp = sub %0, %framesize
@@ -266,12 +266,13 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
             instr_list->Append(new assem::MoveInstr(
             "movq `s0,`d0", new temp::TempList(dest_temp), new temp::TempList(src1_temp)));
             instr_list->Append(new assem::OperInstr(
-                "subq `s0, `d0", new temp::TempList(dest_temp), new temp::TempList(src2_temp), nullptr));
+                "subq `s0, `d0", new temp::TempList(dest_temp), new temp::TempList({src2_temp, dest_temp}), nullptr));
           } else {
             //it1没有被记录，因为是%0代表rsp
             temp::Temp *src2_temp = it2->second;
+            temp::Temp *rsp = reg_manager->GetRsp();
             instr_list->Append(new assem::OperInstr(
-                "subq `s0, %rsp", nullptr, new temp::TempList(src2_temp), nullptr));
+                "subq `s0, %rsp",new temp::TempList(rsp) , new temp::TempList({src2_temp, rsp}), nullptr));
           }
           
         }
@@ -299,7 +300,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           //step2 dest = dest * src2
           instr_list->Append(new assem::OperInstr(
             "imulq `s0, `d0", 
-            new temp::TempList(dest_temp), new temp::TempList(src2_temp), nullptr));
+            new temp::TempList(dest_temp), new temp::TempList({src2_temp, dest_temp}), nullptr));
         }
         else if (llvm::ConstantInt *constInt = llvm::dyn_cast<llvm::ConstantInt>(op2)){
           //第二个参数是常数
@@ -311,7 +312,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           "movq `s0,`d0", new temp::TempList(dest_temp), new temp::TempList(src1_temp)));
           instr_list->Append(new assem::OperInstr(
             "imulq $" + std::to_string(constValue) + ", `d0", 
-            new temp::TempList(dest_temp), nullptr, nullptr));
+            new temp::TempList(dest_temp), new temp::TempList(dest_temp) , nullptr));
         } else {
           //dest = src1 * src2
           assert(it1 != temp_map_->end() && it2 != temp_map_->end());
@@ -321,7 +322,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           instr_list->Append(new assem::MoveInstr(
           "movq `s0,`d0", new temp::TempList(dest_temp), new temp::TempList(src1_temp)));
           instr_list->Append(new assem::OperInstr(
-              "imulq `s0, `d0", new temp::TempList(dest_temp), new temp::TempList(src2_temp), nullptr));
+              "imulq `s0, `d0", new temp::TempList(dest_temp), new temp::TempList({src2_temp, dest_temp}), nullptr));
         }
         break;
     }
@@ -341,9 +342,10 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           int64_t constValue = constInt->getSExtValue();
           assert( it2 != temp_map_->end() );
           temp::Temp *src2_temp = it2->second; // 第二个操作数应该是临时变量
+          temp::Temp *rax = reg_manager->GetRax();
           //step1 move const to rax
           instr_list->Append(new assem::OperInstr(
-          "movq $"+ std::to_string(constValue) +",%rax", nullptr, nullptr, nullptr));
+          "movq $"+ std::to_string(constValue) +",%rax", new temp::TempList(rax), nullptr, nullptr));
           
           //step2 cqto before idivq
           instr_list->Append(new assem::OperInstr(
@@ -354,37 +356,39 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
             nullptr, new temp::TempList(src2_temp), nullptr));
           //step4 将商储存到dest中
            instr_list->Append(new assem::MoveInstr(
-            "movq %rax, `d0", new temp::TempList(dest_temp), nullptr));
+            "movq %rax, `d0", new temp::TempList(dest_temp), new temp::TempList(rax)));
         }
         else if (llvm::ConstantInt *constInt = llvm::dyn_cast<llvm::ConstantInt>(op2)){
           //第二个参数是常数
           int64_t constValue = constInt->getSExtValue();
+          temp::Temp *rax = reg_manager->GetRax();
           //NOTE
           assert( it1 != temp_map_->end());
           temp::Temp *src1_temp = it1->second;
           instr_list->Append(new assem::MoveInstr(
-          "movq `s0, %rax", nullptr, new temp::TempList(src1_temp)));
+          "movq `s0, %rax", new temp::TempList(rax), new temp::TempList(src1_temp)));
           instr_list->Append(new assem::OperInstr(
             "cqto", nullptr, nullptr, nullptr));
           instr_list->Append(new assem::OperInstr(
             "idivq $" + std::to_string(constValue), 
             nullptr, nullptr, nullptr));
           instr_list->Append(new assem::MoveInstr(
-            "movq %rax, `d0", new temp::TempList(dest_temp), nullptr));
+            "movq %rax, `d0", new temp::TempList(dest_temp), new temp::TempList(rax)));
         } else {
           //dest = src1 / src2
           assert(it1 != temp_map_->end() && it2 != temp_map_->end());
           temp::Temp *src1_temp = it1->second;
           temp::Temp *src2_temp = it2->second;
           temp::Temp *dest_temp = it3->second;
+          temp::Temp *rax = reg_manager->GetRax();
           instr_list->Append(new assem::MoveInstr(
-          "movq `s0, %rax", nullptr, new temp::TempList(src1_temp)));
+          "movq `s0, %rax", new temp::TempList(rax), new temp::TempList(src1_temp)));
           instr_list->Append(new assem::OperInstr(
             "cqto", nullptr, nullptr, nullptr));
           instr_list->Append(new assem::OperInstr(
               "idivq `s0", nullptr, new temp::TempList(src2_temp), nullptr));
           instr_list->Append(new assem::MoveInstr(
-            "movq %rax, `d0", new temp::TempList(dest_temp), nullptr));
+            "movq %rax, `d0", new temp::TempList(dest_temp), new temp::TempList(rax)));
         }
         break;
     }
@@ -400,7 +404,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         if (src_it == temp_map_->end() || dst_it == temp_map_->end()) {
             throw std::runtime_error("Operands not found in tempmap");
         }
-        instr_list->Append(new assem::OperInstr("movq `s0, `d0", new temp::TempList(dst_it->second), new temp::TempList(src_it->second), nullptr));
+        instr_list->Append(new assem::MoveInstr("movq `s0, `d0", new temp::TempList(dst_it->second), new temp::TempList(src_it->second)));
         break;
     }
     case llvm::Instruction::IntToPtr: {
@@ -412,7 +416,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         if (src_it == temp_map_->end() || dst_it == temp_map_->end()) {
             throw std::runtime_error("Operands not found in tempmap");
         }
-        instr_list->Append(new assem::OperInstr("movq `s0, `d0", new temp::TempList(dst_it->second), new temp::TempList(src_it->second), nullptr));
+        instr_list->Append(new assem::MoveInstr("movq `s0, `d0", new temp::TempList(dst_it->second), new temp::TempList(src_it->second)));
         break;
     }
     //4
@@ -442,6 +446,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         instr_list->Append(new assem::MoveInstr("movq `s0, `d0", new temp::TempList(resultTemp), new temp::TempList(baseTemp)));
         // Process each index in the GEP
         //NOTE 参数处理比较复杂
+        temp::Temp *rax = reg_manager->GetRax();
         if (gepInst->getNumIndices() == 1){
           llvm::Value *idx = gepInst->getOperand(1); // 索引是第二个操作数
           auto idxIt = temp_map_->find(idx);
@@ -449,14 +454,14 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
               throw std::runtime_error("Index not found in temp_map");
           }
           temp::Temp *idxTemp = idxIt->second;
-          instr_list->Append(new assem::OperInstr("movq `s0, %r9", nullptr, new temp::TempList(idxTemp), nullptr));
+          instr_list->Append(new assem::MoveInstr("movq `s0, %rax", new temp::TempList(rax) , new temp::TempList(idxTemp)));
           //NOTE should use getSize(gepInst->getSourceElementType());
           llvm::Type *idxType = gepInst->getOperand(1)->getType();
           uint32_t typeSize = 8;
          
-          instr_list->Append(new assem::OperInstr("imulq $" + std::to_string(typeSize) + ", %r9", nullptr, nullptr, nullptr));
+          instr_list->Append(new assem::OperInstr("imulq $" + std::to_string(typeSize) + ", %rax", new temp::TempList(rax), new temp::TempList(rax), nullptr));
           // 将计算出的偏移量加到基地址上
-          instr_list->Append(new assem::OperInstr("addq %r9, `d0", new temp::TempList(resultTemp), nullptr, nullptr));
+          instr_list->Append(new assem::OperInstr("addq %rax, `d0", new temp::TempList(resultTemp), new temp::TempList({rax, resultTemp}), nullptr));
         } else if (gepInst->getNumIndices() == 2) {
           uint64_t totalOffset = 0;
           llvm::Value *idx1 = gepInst->getOperand(1);
@@ -479,7 +484,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
 
           
           // 将总偏移量加到基地址上
-          instr_list->Append(new assem::OperInstr("addq $" + std::to_string(totalOffset) + ", `d0", new temp::TempList(resultTemp), nullptr, nullptr));
+          instr_list->Append(new assem::OperInstr("addq $" + std::to_string(totalOffset) + ", `d0", new temp::TempList(resultTemp), new temp::TempList(resultTemp), nullptr));
         } else {
           throw std::runtime_error("gep::indexs more than 2");
         }
@@ -583,8 +588,8 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
             }
           } else {
             temp::Temp *argTemp = it->second;
-            instr_list->Append(new assem::OperInstr("movq `s0,`d0", new temp::TempList(*tmp_iter),
-                                              new temp::TempList(argTemp), nullptr));
+            instr_list->Append(new assem::MoveInstr("movq `s0,`d0", new temp::TempList(*tmp_iter),
+                                              new temp::TempList(argTemp)));
           }      
         }
 
@@ -597,9 +602,9 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
                 throw std::runtime_error("Return value not found in temp_map");
             }
             temp::Temp *destTemp = it->second;
-           
+            temp::Temp *rax = reg_manager->GetRax();
             // Move the return value from %rax to the destination temp
-            instr_list->Append(new assem::MoveInstr("movq %rax, `d0", new temp::TempList(destTemp), nullptr));
+            instr_list->Append(new assem::MoveInstr("movq %rax, `d0", new temp::TempList(destTemp), new temp::TempList(rax)));
         }
 
         break;
@@ -609,18 +614,19 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         /* code */
         llvm::ReturnInst *retInst = llvm::dyn_cast<llvm::ReturnInst>(&inst);
         llvm::Value *retVal = retInst->getReturnValue();
+        temp::Temp *rax = reg_manager->GetRax();
         if(retVal != nullptr){
           if(llvm::ConstantInt *constInt = llvm::dyn_cast<llvm::ConstantInt>(retVal)){
             int64_t constValue = constInt->getSExtValue();
             instr_list->Append(new assem::OperInstr(
               "movq $" + std::to_string(constValue) + ", %rax",
-                nullptr, nullptr, nullptr));
+                new temp::TempList(rax), nullptr, nullptr));
           } else {
             auto it = temp_map_->find(retVal);
             assert(it != temp_map_->end());
             temp::Temp *src_temp = it->second;
            
-            instr_list->Append(new assem::OperInstr("movq `s0, %rax", nullptr, new temp::TempList(src_temp), nullptr));
+            instr_list->Append(new assem::MoveInstr("movq `s0, %rax", new temp::TempList(rax), new temp::TempList(src_temp)));
           }
         
         }
@@ -635,6 +641,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
     //9
     case llvm::Instruction::Br: {
         /* code */
+        temp::Temp *rax = reg_manager->GetRax();
         if(inst.getNumOperands() == 1){
           //br label %if_then
           llvm::Value *dest = inst.getOperand(0);
@@ -647,8 +654,8 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           /*special for phi*/
           int bbIndex = bb_map_->at(bb);
           instr_list->Append(new assem::OperInstr(
-              "movq $" + std::to_string(bbIndex) + ", %r10",
-                nullptr, nullptr, nullptr));
+              "movq $" + std::to_string(bbIndex) + ", %rax",
+                new temp::TempList(rax), nullptr, nullptr));
           instr_list->Append(new assem::OperInstr("jmp `j0", nullptr, nullptr, jumps));
         } else if (inst.getNumOperands() == 3) {
           //br i1 %20, label %if_then, label %if_else
@@ -678,8 +685,8 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           int bbIndex = bb_map_->at(bb);
           //生成比较和跳转指令
           instr_list->Append(new assem::OperInstr(
-              "movq $" + std::to_string(bbIndex) + ", %r10",
-                nullptr, nullptr, nullptr));
+              "movq $" + std::to_string(bbIndex) + ", %rax",
+                new temp::TempList(rax), nullptr, nullptr));
           instr_list->Append(new assem::OperInstr("cmpq $0, `s0", nullptr, new temp::TempList(cond_temp), nullptr));
           std::vector<temp::Label*> *labels_true = new std::vector<temp::Label*>();
           labels_true->push_back(label_true);
@@ -775,6 +782,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           throw std::runtime_error("phi::Return value not found in temp_map");
         }
         temp::Temp *dest_temp = it->second;
+        temp::Temp *rax = reg_manager->GetRax();
 
         unsigned num = phiNode->getNumIncomingValues();
         assert(num == 2);
@@ -806,14 +814,14 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         
         //1. cmpq index1
         instr_list->Append(new assem::OperInstr(
-              "cmpq $" + std::to_string(pred_bb_index1) + ", %r10",
-              nullptr, nullptr, nullptr));
+              "cmpq $" + std::to_string(pred_bb_index1) + ", %rax",
+              nullptr, new temp::TempList(rax), nullptr));
         //2. je label1
         instr_list->Append(new assem::OperInstr("je `j0", nullptr, nullptr, jumps1));
         //3. cmpq index2
         instr_list->Append(new assem::OperInstr(
-              "cmpq $" + std::to_string(pred_bb_index2) + ", %r10",
-              nullptr, nullptr, nullptr));
+              "cmpq $" + std::to_string(pred_bb_index2) + ", %rax",
+              nullptr, new temp::TempList(rax), nullptr));
         //4. je label2
         instr_list->Append(new assem::OperInstr("je `j0", nullptr, nullptr, jumps2));
         //5. set label1
@@ -830,9 +838,9 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
               throw std::runtime_error("PHI incoming value1 not found in temp_map");
           }
           temp::Temp *src_temp = iti->second;
-          instr_list->Append(new assem::OperInstr(
+          instr_list->Append(new assem::MoveInstr(
               "movq `s0, `d0",
-              new temp::TempList(dest_temp), new temp::TempList(src_temp), nullptr));
+              new temp::TempList(dest_temp), new temp::TempList(src_temp)));
         }
         //7. jmp to end
         instr_list->Append(new assem::OperInstr("jmp `j0", nullptr, nullptr, jumps3));
@@ -854,9 +862,9 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
               new temp::TempList(dest_temp), nullptr, nullptr));
           } else {
             temp::Temp *src_temp = iti->second;
-            instr_list->Append(new assem::OperInstr(
+            instr_list->Append(new assem::MoveInstr(
                 "movq `s0, `d0",
-                new temp::TempList(dest_temp), new temp::TempList(src_temp), nullptr));
+                new temp::TempList(dest_temp), new temp::TempList(src_temp)));
           }
        
         }
