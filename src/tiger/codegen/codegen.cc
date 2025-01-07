@@ -343,17 +343,18 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           assert( it2 != temp_map_->end() );
           temp::Temp *src2_temp = it2->second; // 第二个操作数应该是临时变量
           temp::Temp *rax = reg_manager->GetRax();
+          temp::Temp *rdx = reg_manager->GetRdx();
           //step1 move const to rax
           instr_list->Append(new assem::OperInstr(
           "movq $"+ std::to_string(constValue) +",%rax", new temp::TempList(rax), nullptr, nullptr));
           
           //step2 cqto before idivq
           instr_list->Append(new assem::OperInstr(
-            "cqto", nullptr, nullptr, nullptr));
+            "cqto", new temp::TempList(rdx), new temp::TempList(rax), nullptr));
           //step3 dest = rax / src2
           instr_list->Append(new assem::OperInstr(
             "idivq `s0", 
-            nullptr, new temp::TempList(src2_temp), nullptr));
+            new temp::TempList({rax, rdx}), new temp::TempList(src2_temp), nullptr));
           //step4 将商储存到dest中
            instr_list->Append(new assem::MoveInstr(
             "movq %rax, `d0", new temp::TempList(dest_temp), new temp::TempList(rax)));
@@ -506,8 +507,8 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         if(llvm::ConstantInt *constInt = llvm::dyn_cast<llvm::ConstantInt>(src)){
           int64_t constValue = constInt->getSExtValue();
           instr_list->Append(new assem::OperInstr(
-          "movq $" + std::to_string(constValue) + ", (`d0)",
-            new temp::TempList(dst_temp), nullptr, nullptr));
+          "movq $" + std::to_string(constValue) + ", (`s0)",
+            nullptr, new temp::TempList(dst_temp), nullptr));
         } else {
           auto src_it = temp_map_->find(src);
           if (src_it == temp_map_->end()) {
@@ -516,8 +517,8 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           temp::Temp *src_temp = src_it->second;
           // 生成store汇编指令，将值存储到指针指向的内存地址
           instr_list->Append(new assem::OperInstr(
-              "movq `s0, (`d0)",
-              new temp::TempList(dst_temp), new temp::TempList(src_temp), nullptr));
+              "movq `s0, (`s1)",
+              nullptr, new temp::TempList({src_temp, dst_temp}), nullptr));
         }
         break;
     }
@@ -571,11 +572,20 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           ) {
             i++;
           }
-   
+
+        temp::TempList *use = new temp::TempList();
+        auto caller_saved = reg_manager->CallerSaves();
+        temp::TempList *def = new temp::TempList();
+        for(auto r : caller_saved->GetList()){
+          def->Append(r);
+        }
 
         for (; i < paramCount &&
               tmp_iter != regs->GetList().end();
             ++i, ++tmp_iter) {
+          
+          use->Append(*tmp_iter);
+          
           llvm::Value *argValue = callInst->getArgOperand(i);
           auto it = temp_map_->find(argValue);
           if (it == temp_map_->end()) {
@@ -594,7 +604,6 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         }
 
         //Call the target function
-        instr_list->Append(new assem::OperInstr("callq " + funcName, nullptr, nullptr, nullptr));
         // For calls with return values
         if (!callInst->getType()->isVoidTy()) {
             auto it = temp_map_->find(&inst);
@@ -603,8 +612,11 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
             }
             temp::Temp *destTemp = it->second;
             temp::Temp *rax = reg_manager->GetRax();
+            instr_list->Append(new assem::OperInstr("callq " + funcName, def, use, nullptr));
             // Move the return value from %rax to the destination temp
             instr_list->Append(new assem::MoveInstr("movq %rax, `d0", new temp::TempList(destTemp), new temp::TempList(rax)));
+        } else {
+            instr_list->Append(new assem::OperInstr("callq " + funcName, def, use, nullptr));
         }
 
         break;
@@ -770,6 +782,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
             throw std::runtime_error("Unsupported icmp predicate");
             break;
         }
+        instr_list->Append(new assem::OperInstr("movq $0, `d0", new temp::TempList(dest_temp) , nullptr, nullptr));
         instr_list->Append(new assem::OperInstr(setInstr, new temp::TempList(dest_temp), nullptr, nullptr));
         break;
     }

@@ -82,6 +82,8 @@ temp::Temp *X64RegManager::GetRax() { return regs_[RAX]; }
 
 temp::Temp *X64RegManager::GetRsp() { return regs_[RSP]; }
 
+temp::Temp *X64RegManager::GetRdx() { return regs_[RDX]; }
+
 class InFrameAccess : public Access {
 public:
   int offset;

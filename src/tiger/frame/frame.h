@@ -68,6 +68,8 @@ public:
 
   [[nodiscard]] virtual temp::Temp *GetRsp() = 0;
 
+  [[nodiscard]] virtual temp::Temp *GetRdx() = 0;
+
   temp::Map *temp_map_;
 
 protected:

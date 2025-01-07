@@ -52,6 +52,8 @@ public:
   [[nodiscard]] temp::Temp *GetRax() override;
 
   [[nodiscard]] temp::Temp *GetRsp() override;
+
+  [[nodiscard]] temp::Temp *GetRdx() override;
 };
 
 } // namespace frame
