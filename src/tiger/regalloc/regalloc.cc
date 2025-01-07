@@ -348,7 +348,7 @@ void RegAllocator::RewriteProgram() {
     std::string last_label = this->body_name_str_;
     for (auto instr : assem_instr->GetInstrList()->GetList()) {
         /* Check if both def&use are nullptr */
-        //开始遍历寻找用到spill temp的指令，spilltemp要么是在出口被use，要么是在入口被def
+        //开始遍历寻找用到spill temp的指令
         temp::TempList *def_temp_list = instr->Def();
         temp::TempList *use_temp_list = instr->Use();
         if(typeid(*instr) == typeid(assem::LabelInstr)){
@@ -418,7 +418,48 @@ void RegAllocator::RewriteProgram() {
                         );
                     }
                     else {
-                        throw std::runtime_error("not finished");
+                        //内部被def
+                        if (typeid(*instr) == typeid(assem::MoveInstr)) {
+                            assem::MoveInstr *move_instr = (assem::MoveInstr *) instr;
+                            std::cout << "TEST_DEF_SPILL_MOVE_CODE: " + move_instr->assem_ + " " + std::to_string(def_temp->Int())  + " use:" + std::to_string(move_instr->src_->NthTemp(0)->Int())<< std::endl;
+                            new_use_list = move_instr->Use();
+
+                            def_assem_list->Append(
+                                new assem::MoveInstr(
+                                    "movq `s0, `d0",
+                                    new temp::TempList(new_temp),
+                                    new_use_list
+                                )
+                            );
+                        } else if (typeid(*instr) == typeid(assem::OperInstr)) {
+                            assem::OperInstr *op_instr = (assem::OperInstr *) instr;
+                            std::cout << "TEST_DEF_SPILL_MOVE_CODE: " +  op_instr->assem_ + " " + std::to_string(def_temp->Int()) << std::endl;
+                            op_instr->dst_ = new temp::TempList(new_temp);
+                            instr = op_instr;
+
+                            def_assem_list->Append(instr);
+                        } else {
+                            throw std::runtime_error("should not be label");
+                        }
+
+                        uint64_t frame_size = frame_info_map[this->body_name_str_].second / 16 * 16 + 8;
+
+                        def_assem_list->Append(
+                            new assem::OperInstr(
+                                "leaq " + std::to_string(frame_size) + "(%rsp), `d0",
+                                new temp::TempList(frame_temp),
+                                new temp::TempList(rsp),
+                                nullptr
+                            )
+                        );
+
+                        def_assem_list->Append(
+                            new assem::OperInstr(
+                                "movq `s0," + std::to_string(offset) + "(`s1)",
+                                nullptr, new temp::TempList{new_temp, frame_temp},
+                                nullptr
+                            )
+                        );
                     }
                   
                 }
@@ -450,7 +491,7 @@ void RegAllocator::RewriteProgram() {
 
                         use_assem_list->Append(
                             new assem::OperInstr(
-                                "movq "+ std::to_string(offset) +" (`s0), `d0",
+                                "movq "+ std::to_string(offset) +"(`s0), `d0",
                                 new temp::TempList(new_temp), 
                                 new temp::TempList(frame_temp),
                                 nullptr
@@ -465,10 +506,43 @@ void RegAllocator::RewriteProgram() {
                             )
                         );
                     } else if (typeid(*instr) == typeid(assem::OperInstr)) {
-                        throw std::runtime_error("use not finished");
+                        //throw std::runtime_error("use not finished");
                         assem::OperInstr *op_instr = (assem::OperInstr *) instr;
                         std::cout << "USE_SPILL_OP_CODE: " + op_instr->assem_ + " " + std::to_string(use_temp->Int()) << std::endl;
-                        new_def_list = op_instr->Def();
+
+                        uint64_t frame_size = frame_info_map[this->body_name_str_].second / 16 * 16 + 8;
+
+                        use_assem_list->Append(
+                            new assem::OperInstr(
+                                "leaq " + std::to_string(frame_size) + "(%rsp), `d0",
+                                new temp::TempList(frame_temp),
+                                new temp::TempList(rsp),
+                                nullptr
+                            )
+                        );
+
+                        use_assem_list->Append(
+                            new assem::OperInstr(
+                                "movq "+ std::to_string(offset) +"(`s0), `d0",
+                                new temp::TempList(new_temp), 
+                                new temp::TempList(frame_temp),
+                                nullptr
+                            )
+                        );
+
+                        //接下来只要把原本use的told换成tnew
+                        temp::TempList *temp_use_list = new temp::TempList();
+                        for(auto old_use_t : use_temp_list->GetList()){
+                            if(old_use_t != use_temp){
+                                temp_use_list->Append(old_use_t);
+                            } else {
+                                temp_use_list->Append(new_temp);
+                            }
+                        }
+                        op_instr->src_ = temp_use_list;
+                        instr = op_instr;
+                        use_assem_list->Append(instr);
+                        
                     } else {
                         throw std::runtime_error("should not be label");
                     }
