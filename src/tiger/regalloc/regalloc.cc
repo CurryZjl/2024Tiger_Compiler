@@ -356,10 +356,10 @@ void RegAllocator::RewriteProgram() {
             last_label = label_instr->assem_;
             std::cout << "LAST_LABEL: " << last_label << std::endl;
         }
-        if (def_temp_list == nullptr && use_temp_list == nullptr || def_temp_list != nullptr && def_temp_list->GetList().size() == 0 && use_temp_list != nullptr && use_temp_list->GetList().size() == 0) {
-            new_assem_list->Append(instr);
-            continue;
-        }
+        // if (def_temp_list == nullptr && use_temp_list == nullptr || def_temp_list != nullptr && def_temp_list->GetList().size() == 0 && use_temp_list != nullptr && use_temp_list->GetList().size() == 0) {
+        //     new_assem_list->Append(instr);
+        //     continue;
+        // }
 
         temp::Temp *frame_temp = temp::TempFactory::NewTemp();
         temp::TempList *new_def_list = nullptr;
@@ -385,7 +385,7 @@ void RegAllocator::RewriteProgram() {
                             def_assem_list->Append(instr);
                         } else if (typeid(*instr) == typeid(assem::OperInstr)) {
                             assem::OperInstr *op_instr = (assem::OperInstr *) instr;
-                            std::cout << "DEF_SPILL_MOVE_CODE: " +  op_instr->assem_ + " " + std::to_string(def_temp->Int()) << std::endl;
+                            std::cout << "DEF_SPILL_OP_CODE: " +  op_instr->assem_ + " " + std::to_string(def_temp->Int()) << std::endl;
                             op_instr->dst_ = new temp::TempList(new_temp);
                             instr = op_instr;
                             def_assem_list->Append(instr);
@@ -414,14 +414,15 @@ void RegAllocator::RewriteProgram() {
                         //内部被def
                         if (typeid(*instr) == typeid(assem::MoveInstr)) {
                             assem::MoveInstr *move_instr = (assem::MoveInstr *) instr;
-                            std::cout << "TEST_DEF_SPILL_MOVE_CODE: " + move_instr->assem_ + " " + std::to_string(def_temp->Int())  + " use:" + std::to_string(move_instr->src_->NthTemp(0)->Int())<< std::endl;
+                            std::cout << "INSIDE_DEF_SPILL_MOVE_CODE: " + move_instr->assem_ + " " + std::to_string(def_temp->Int())  + " use:" + std::to_string(move_instr->src_->NthTemp(0)->Int())<< std::endl;
                             move_instr->dst_ = new temp::TempList(new_temp);
                             instr = move_instr;
 
                             def_assem_list->Append(instr);
                         } else if (typeid(*instr) == typeid(assem::OperInstr)) {
+                            //NOTE
                             assem::OperInstr *op_instr = (assem::OperInstr *) instr;
-                            std::cout << "TEST_DEF_SPILL_MOVE_CODE: " +  op_instr->assem_ + " " + std::to_string(def_temp->Int()) << std::endl;
+                            std::cout << "INSIDE_DEF_SPILL_OP_CODE: " +  op_instr->assem_ + " " + std::to_string(def_temp->Int()) << std::endl;
                             op_instr->dst_ = new temp::TempList(new_temp);
                             instr = op_instr;
 

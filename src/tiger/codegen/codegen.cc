@@ -337,20 +337,24 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         assert(it3 != temp_map_->end());
         temp::Temp *dest_temp = it3->second;
         //NOTE::区分操作数类型
+        temp::Temp *rax = reg_manager->GetRax();
+        temp::Temp *rdx = reg_manager->GetRdx();
         if(llvm::ConstantInt *constInt = llvm::dyn_cast<llvm::ConstantInt>(op1)){
           //如果第一个参数是常数 dest = c / src2
           int64_t constValue = constInt->getSExtValue();
           assert( it2 != temp_map_->end() );
           temp::Temp *src2_temp = it2->second; // 第二个操作数应该是临时变量
-          temp::Temp *rax = reg_manager->GetRax();
-          temp::Temp *rdx = reg_manager->GetRdx();
+          
           //step1 move const to rax
           instr_list->Append(new assem::OperInstr(
           "movq $"+ std::to_string(constValue) +",%rax", new temp::TempList(rax), nullptr, nullptr));
           
           //step2 cqto before idivq
           instr_list->Append(new assem::OperInstr(
-            "cqto", new temp::TempList(rdx), new temp::TempList(rax), nullptr));
+            "cqto", 
+            new temp::TempList(rdx), 
+            new temp::TempList(rax), 
+            nullptr));
           //step3 dest = rax / src2
           instr_list->Append(new assem::OperInstr(
             "idivq `s0", 
@@ -369,10 +373,13 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           instr_list->Append(new assem::MoveInstr(
           "movq `s0, %rax", new temp::TempList(rax), new temp::TempList(src1_temp)));
           instr_list->Append(new assem::OperInstr(
-            "cqto", nullptr, nullptr, nullptr));
+            "cqto", 
+            new temp::TempList(rdx), 
+            new temp::TempList(rax), 
+            nullptr));
           instr_list->Append(new assem::OperInstr(
             "idivq $" + std::to_string(constValue), 
-            nullptr, nullptr, nullptr));
+            new temp::TempList({rax, rdx}), nullptr, nullptr));
           instr_list->Append(new assem::MoveInstr(
             "movq %rax, `d0", new temp::TempList(dest_temp), new temp::TempList(rax)));
         } else {
@@ -385,9 +392,12 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           instr_list->Append(new assem::MoveInstr(
           "movq `s0, %rax", new temp::TempList(rax), new temp::TempList(src1_temp)));
           instr_list->Append(new assem::OperInstr(
-            "cqto", nullptr, nullptr, nullptr));
+            "cqto", 
+            new temp::TempList(rdx), 
+            new temp::TempList(rax), 
+            nullptr));
           instr_list->Append(new assem::OperInstr(
-              "idivq `s0", nullptr, new temp::TempList(src2_temp), nullptr));
+              "idivq `s0",  new temp::TempList({rax, rdx}), new temp::TempList(src2_temp), nullptr));
           instr_list->Append(new assem::MoveInstr(
             "movq %rax, `d0", new temp::TempList(dest_temp), new temp::TempList(rax)));
         }
