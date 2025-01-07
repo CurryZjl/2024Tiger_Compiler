@@ -180,15 +180,15 @@ void ProcFrag::OutputAssem(FILE *out, OutputPhase phase, bool need_ra) const {
           frame_info_map[proc_name].second);
   // prologue
   fprintf(out, "%s", proc->prolog_.data());
-  TigerLog("%s", proc->prolog_.data());
+  //TigerLog("%s", proc->prolog_.data());
   // body
   proc->body_->Print(out, color);
-  TigerLog(assem_instr.get(), color);
+ // TigerLog(assem_instr.get(), color);
   // epilog_
   fprintf(out, "%s", proc->epilog_.data());
-  TigerLog("%s", proc->epilog_.data());
+  //TigerLog("%s", proc->epilog_.data());
   fprintf(out, ".size %s, .-%s\n", proc_name.data(), proc_name.data());
-  TigerLog(".size %s, .-%s\n", proc_name.data(), proc_name.data());
+ // TigerLog(".size %s, .-%s\n", proc_name.data(), proc_name.data());
 }
 
 void StringFrag::OutputAssem(FILE *out, OutputPhase phase, bool need_ra) const {

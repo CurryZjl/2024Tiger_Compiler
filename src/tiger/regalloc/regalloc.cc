@@ -380,21 +380,14 @@ void RegAllocator::RewriteProgram() {
                         if (typeid(*instr) == typeid(assem::MoveInstr)) {
                             assem::MoveInstr *move_instr = (assem::MoveInstr *) instr;
                             std::cout << "DEF_SPILL_MOVE_CODE: " + move_instr->assem_ + " " + std::to_string(def_temp->Int())  + " use:" + std::to_string(move_instr->src_->NthTemp(0)->Int())<< std::endl;
-                            new_use_list = move_instr->Use();
-
-                            def_assem_list->Append(
-                                new assem::MoveInstr(
-                                    "movq `s0, `d0",
-                                    new temp::TempList(new_temp),
-                                    new_use_list
-                                )
-                            );
+                            move_instr->dst_ = new temp::TempList(new_temp);
+                            instr = move_instr;
+                            def_assem_list->Append(instr);
                         } else if (typeid(*instr) == typeid(assem::OperInstr)) {
                             assem::OperInstr *op_instr = (assem::OperInstr *) instr;
                             std::cout << "DEF_SPILL_MOVE_CODE: " +  op_instr->assem_ + " " + std::to_string(def_temp->Int()) << std::endl;
                             op_instr->dst_ = new temp::TempList(new_temp);
                             instr = op_instr;
-
                             def_assem_list->Append(instr);
                         } else {
                             throw std::runtime_error("should not be label");
@@ -412,7 +405,7 @@ void RegAllocator::RewriteProgram() {
                         def_assem_list->Append(
                             new assem::OperInstr(
                                 "movq `s0, (`s1)",
-                                nullptr, new temp::TempList{new_temp, frame_temp},
+                                nullptr, new temp::TempList({new_temp, frame_temp}),
                                 nullptr
                             )
                         );
@@ -422,15 +415,10 @@ void RegAllocator::RewriteProgram() {
                         if (typeid(*instr) == typeid(assem::MoveInstr)) {
                             assem::MoveInstr *move_instr = (assem::MoveInstr *) instr;
                             std::cout << "TEST_DEF_SPILL_MOVE_CODE: " + move_instr->assem_ + " " + std::to_string(def_temp->Int())  + " use:" + std::to_string(move_instr->src_->NthTemp(0)->Int())<< std::endl;
-                            new_use_list = move_instr->Use();
+                            move_instr->dst_ = new temp::TempList(new_temp);
+                            instr = move_instr;
 
-                            def_assem_list->Append(
-                                new assem::MoveInstr(
-                                    "movq `s0, `d0",
-                                    new temp::TempList(new_temp),
-                                    new_use_list
-                                )
-                            );
+                            def_assem_list->Append(instr);
                         } else if (typeid(*instr) == typeid(assem::OperInstr)) {
                             assem::OperInstr *op_instr = (assem::OperInstr *) instr;
                             std::cout << "TEST_DEF_SPILL_MOVE_CODE: " +  op_instr->assem_ + " " + std::to_string(def_temp->Int()) << std::endl;
@@ -456,7 +444,7 @@ void RegAllocator::RewriteProgram() {
                         def_assem_list->Append(
                             new assem::OperInstr(
                                 "movq `s0," + std::to_string(offset) + "(`s1)",
-                                nullptr, new temp::TempList{new_temp, frame_temp},
+                                nullptr, new temp::TempList({new_temp, frame_temp}),
                                 nullptr
                             )
                         );
