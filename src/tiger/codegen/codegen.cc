@@ -358,7 +358,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           //step3 dest = rax / src2
           instr_list->Append(new assem::OperInstr(
             "idivq `s0", 
-            new temp::TempList({rax, rdx}), new temp::TempList(src2_temp), nullptr));
+            new temp::TempList({rax, rdx}), new temp::TempList({src2_temp, rax}), nullptr));
           //step4 将商储存到dest中
            instr_list->Append(new assem::MoveInstr(
             "movq %rax, `d0", new temp::TempList(dest_temp), new temp::TempList(rax)));
@@ -385,7 +385,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
 
           instr_list->Append(new assem::OperInstr(
             "idivq `s0", 
-            new temp::TempList({rax, rdx}),  new temp::TempList(temp_reg), nullptr));
+            new temp::TempList({rax, rdx}),  new temp::TempList({temp_reg, rax}), nullptr));
           instr_list->Append(new assem::MoveInstr(
             "movq %rax, `d0", new temp::TempList(dest_temp), new temp::TempList(rax)));
         } else {
@@ -403,7 +403,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
             new temp::TempList(rax), 
             nullptr));
           instr_list->Append(new assem::OperInstr(
-              "idivq `s0",  new temp::TempList({rax, rdx}), new temp::TempList(src2_temp), nullptr));
+              "idivq `s0",  new temp::TempList({rax, rdx}), new temp::TempList({src2_temp, rax}), nullptr));
           instr_list->Append(new assem::MoveInstr(
             "movq %rax, `d0", new temp::TempList(dest_temp), new temp::TempList(rax)));
         }
