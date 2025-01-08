@@ -366,10 +366,10 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         else if (llvm::ConstantInt *constInt = llvm::dyn_cast<llvm::ConstantInt>(op2)){
           //第二个参数是常数
           int64_t constValue = constInt->getSExtValue();
-          temp::Temp *rax = reg_manager->GetRax();
           //NOTE
           assert( it1 != temp_map_->end());
           temp::Temp *src1_temp = it1->second;
+          temp::Temp *temp_reg =  temp::TempFactory::NewTemp();
           instr_list->Append(new assem::MoveInstr(
           "movq `s0, %rax", new temp::TempList(rax), new temp::TempList(src1_temp)));
           instr_list->Append(new assem::OperInstr(
@@ -378,8 +378,14 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
             new temp::TempList(rax), 
             nullptr));
           instr_list->Append(new assem::OperInstr(
-            "idivq $" + std::to_string(constValue), 
-            new temp::TempList({rax, rdx}), nullptr, nullptr));
+            "movq $" + std::to_string(constValue) + ", `d0",
+             new temp::TempList(temp_reg),
+             nullptr, nullptr
+          ));
+
+          instr_list->Append(new assem::OperInstr(
+            "idivq `s0", 
+            new temp::TempList({rax, rdx}),  new temp::TempList(temp_reg), nullptr));
           instr_list->Append(new assem::MoveInstr(
             "movq %rax, `d0", new temp::TempList(dest_temp), new temp::TempList(rax)));
         } else {
