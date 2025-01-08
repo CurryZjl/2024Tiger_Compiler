@@ -493,7 +493,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           if (llvm::ConstantInt *constIdx = llvm::dyn_cast<llvm::ConstantInt>(idx2)) {
             //NOTE
               if(constIdx->getSExtValue() == 1){
-                totalOffset += 4;
+                totalOffset += 8;
               }
           } else {
               throw std::runtime_error("Non-constant index in multi-index constant GEP");
